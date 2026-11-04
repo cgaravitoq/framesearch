@@ -2,7 +2,7 @@ import { DDL, type Film } from "@framesearch/schema";
 import type { StoredShot } from "./store.ts";
 
 export function publishSql(film: Film, shots: readonly StoredShot[]): string {
-  const statements = [...DDL.map((statement) => `${statement};`)];
+  const statements = [...DDL];
   statements.push(...removeStatements(film.slug));
   statements.push(
     `INSERT INTO films (slug, title, duration) VALUES (${text(film.slug)}, ${text(film.title)}, ${number(film.duration)})`,
@@ -19,13 +19,11 @@ export function publishSql(film: Film, shots: readonly StoredShot[]): string {
       `INSERT INTO shots_fts (rowid, caption) VALUES (${shot.id}, ${text(body)})`,
     );
   }
-  return `${statements.join(";\n")};\n`;
+  return render(statements);
 }
 
 export function unpublishSql(film: string): string {
-  return `${DDL.map((statement) => `${statement};`)
-    .concat(removeStatements(film))
-    .join(";\n")};\n`;
+  return render([...DDL, ...removeStatements(film)]);
 }
 
 export function ftsText(shot: StoredShot): string {
@@ -41,6 +39,10 @@ function removeStatements(film: string): string[] {
     `DELETE FROM shots WHERE film = ${slug}`,
     `DELETE FROM films WHERE slug = ${slug}`,
   ];
+}
+
+function render(statements: readonly string[]): string {
+  return `${statements.join(";\n")};\n`;
 }
 
 function text(value: string): string {
