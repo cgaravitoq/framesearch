@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { frameKey, vectorsKey } from "@framesearch/schema";
 import {
-  deleteObject,
-  executeSql,
+  type Cloud,
   mapBounded,
   UPLOAD_CONCURRENCY,
+  wranglerCloud,
 } from "./cloud.ts";
 import { dataDir, dbFile } from "./paths.ts";
 import { unpublishSql } from "./sql.ts";
@@ -13,6 +13,7 @@ import { parseFilmArg, unwrap } from "./validate.ts";
 
 export interface UnpublishOptions {
   dataDir?: string | undefined;
+  cloud?: Cloud | undefined;
 }
 
 export interface UnpublishReport {
@@ -29,13 +30,19 @@ export async function unpublishFilm(
   const started = performance.now();
   const slug = unwrap(parseFilmArg(rawSlug));
   const dir = options.dataDir ?? dataDir();
-  const frames = localFrames(dir, slug);
+  const cloud = options.cloud ?? wranglerCloud;
+  const frames = [
+    ...new Set([
+      ...localFrames(dir, slug),
+      ...(await cloud.publishedFrames(slug)),
+    ]),
+  ];
   await mapBounded(frames, UPLOAD_CONCURRENCY, (idx) =>
-    deleteObject(frameKey(slug, idx)),
+    cloud.deleteObject(frameKey(slug, idx)),
   );
   const key = vectorsKey(slug);
-  await deleteObject(key);
-  await executeSql(unpublishSql(slug));
+  await cloud.deleteObject(key);
+  await cloud.executeSql(unpublishSql(slug));
   return {
     film: slug,
     frames: frames.length,

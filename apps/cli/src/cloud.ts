@@ -1,11 +1,23 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { publishedFramesSql } from "./sql.ts";
 
 const WRANGLER = ["npx", "-y", "wrangler@4"];
 const OUTPUT_TAIL = 400;
 
 export const UPLOAD_CONCURRENCY = 8;
+
+export interface Cloud {
+  putObject(key: string, file: string, contentType: string): Promise<void>;
+  deleteObject(key: string): Promise<void>;
+  executeSql(sql: string): Promise<void>;
+  publishedFrames(film: string): Promise<number[]>;
+}
+
+interface D1Reply {
+  results: { idx: number }[];
+}
 
 export function bucketName(): string {
   return process.env.FRAMESEARCH_R2_BUCKET ?? "framesearch-staging";
@@ -61,6 +73,27 @@ export async function executeSql(sql: string): Promise<void> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+export async function publishedFrames(film: string): Promise<number[]> {
+  const stdout = await wrangler([
+    "d1",
+    "execute",
+    databaseName(),
+    "--remote",
+    "--json",
+    "--command",
+    publishedFramesSql(film),
+  ]);
+  const [reply] = JSON.parse(stdout) as D1Reply[];
+  return reply?.results.map((row) => row.idx) ?? [];
+}
+
+export const wranglerCloud: Cloud = {
+  putObject,
+  deleteObject,
+  executeSql,
+  publishedFrames,
+};
 
 export async function mapBounded<T>(
   items: readonly T[],

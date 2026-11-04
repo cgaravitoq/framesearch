@@ -26,6 +26,10 @@ export function unpublishSql(film: string): string {
   return render([...DDL, ...removeStatements(film)]);
 }
 
+export function publishedFramesSql(film: string): string {
+  return `SELECT idx FROM shots WHERE film = ${text(film)} ORDER BY idx`;
+}
+
 export function ftsText(shot: StoredShot): string {
   const parts = shot.caption === null ? [] : [shot.caption];
   parts.push(...shot.tags);

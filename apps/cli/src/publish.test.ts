@@ -3,9 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeVectors, type FilmVectors } from "@framesearch/schema";
-import { vectorsFile } from "./paths.ts";
+import type { Cloud } from "./cloud.ts";
+import { frameFile, vectorsFile } from "./paths.ts";
 import { publishFilm } from "./publish.ts";
 import { createStore, replaceFilm, type StoredShot } from "./store.ts";
+import { unpublishFilm } from "./unpublish.ts";
 
 const DIM = 8;
 const SLUG = "night-of-the-living-dead";
@@ -65,7 +67,38 @@ function writeVectors(dir: string, vectors: FilmVectors): void {
   writeFileSync(vectorsFile(dir, SLUG), encodeVectors(vectors));
 }
 
+function writeFrames(dir: string, shots: readonly StoredShot[]): void {
+  mkdirSync(join(dir, "frames", SLUG), { recursive: true });
+  for (const shot of shots) writeFileSync(frameFile(dir, SLUG, shot.idx), "");
+}
+
+function fakeCloud(published: number[]): { cloud: Cloud; deleted: string[] } {
+  const deleted: string[] = [];
+  const cloud: Cloud = {
+    putObject: async () => {},
+    deleteObject: async (key) => {
+      deleted.push(key);
+    },
+    executeSql: async () => {},
+    publishedFrames: async () => published,
+  };
+  return { cloud, deleted };
+}
+
 describe("publish", () => {
+  test("removes the frames an earlier, longer cut left in R2", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, deleted } = fakeCloud([0, 1, 2, 3, 4]);
+    await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(deleted.sort()).toEqual([
+      `frames/${SLUG}/3.jpg`,
+      `frames/${SLUG}/4.jpg`,
+    ]);
+  });
+
   test("refuses a store whose vectors file lost a frame", async () => {
     const dir = dataDir();
     const shots = seed(dir);
@@ -137,5 +170,18 @@ describe("publish", () => {
     await expect(publishFilm("../etc", { dataDir: dir })).rejects.toThrow(
       /film must be a lowercase slug/,
     );
+  });
+});
+
+describe("unpublish", () => {
+  test("removes the published frames a missing local store does not list", async () => {
+    const { cloud, deleted } = fakeCloud([0, 1, 2]);
+    await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
+    expect(deleted.sort()).toEqual([
+      `frames/${SLUG}/0.jpg`,
+      `frames/${SLUG}/1.jpg`,
+      `frames/${SLUG}/2.jpg`,
+      `vectors/${SLUG}.bin`,
+    ]);
   });
 });
