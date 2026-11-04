@@ -9,6 +9,7 @@ import { frameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { embeddingsConfig } from "./embeddings.ts";
 import type { Env } from "./env.ts";
+import { logClick, logSearch } from "./log.ts";
 import { runSearch, runSimilar } from "./search.ts";
 import { hash, publishedFilms } from "./vectors.ts";
 
@@ -98,6 +99,16 @@ export function createApp(): Hono<{ Bindings: Env }> {
     } catch (error) {
       return failure(message(error), 502);
     }
+  });
+
+  app.post("/api/log/search", async (c) => {
+    const result = await logSearch(c.env, c.req.raw);
+    return result.ok ? json(result.body) : failure(result.error, result.status);
+  });
+
+  app.post("/api/log/click", async (c) => {
+    const result = await logClick(c.env, c.req.raw);
+    return result.ok ? json(result.body) : failure(result.error, result.status);
   });
 
   app.notFound((c) => failure(`no route for ${c.req.path}`, 404));

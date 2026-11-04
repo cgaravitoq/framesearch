@@ -159,3 +159,100 @@ describe("rate limit", () => {
     expect(queries).toEqual([]);
   });
 });
+
+const IP = "203.0.113.9";
+
+function logRequest(
+  path: string,
+  body: string,
+  contentType = "application/json",
+) {
+  return createApp().request(
+    path,
+    {
+      body,
+      headers: { "cf-connecting-ip": IP, "content-type": contentType },
+      method: "POST",
+    },
+    fakeEnv(),
+  );
+}
+
+describe("log routes", () => {
+  test("refuse a body that is not application/json", async () => {
+    const response = await logRequest(
+      "/api/log/search",
+      '{"query":"fire"}',
+      "text/plain",
+    );
+    expect(response.status).toBe(415);
+  });
+
+  test("refuse a body that is not a JSON object", async () => {
+    for (const body of ["[1,2]", "not json", '"fire"']) {
+      const response = await logRequest("/api/log/search", body);
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("refuse a body over the size limit", async () => {
+    const response = await logRequest(
+      "/api/log/search",
+      JSON.stringify({ query: "fire", shotIds: Array(5000).fill(1) }),
+    );
+    expect(response.status).toBe(413);
+  });
+
+  test("record the query, film and shots without the address", async () => {
+    const { db, queries } = fakeDb({ lastRowId: 42 });
+    const response = await createApp().request(
+      "/api/log/search",
+      {
+        body: JSON.stringify({
+          film: "night-of-the-living-dead",
+          query: "graveyard at night",
+          shotIds: [11, 22],
+        }),
+        headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+        method: "POST",
+      },
+      fakeEnv({ DB: db }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: 42, logged: true });
+    const [insert] = queries;
+    expect(insert?.args.slice(0, 3)).toEqual([
+      "graveyard at night",
+      "night-of-the-living-dead",
+      JSON.stringify([11, 22]),
+    ]);
+    expect(insert?.args).not.toContain(IP);
+  });
+
+  test("record a click with the rank the search returned", async () => {
+    const { db, queries } = fakeDb({
+      rows: [{ shot_ids: JSON.stringify([11, 22, 33]) }],
+    });
+    const response = await createApp().request(
+      "/api/log/click",
+      {
+        body: JSON.stringify({ searchId: 42, shotId: 22 }),
+        headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+        method: "POST",
+      },
+      fakeEnv({ DB: db }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: null, logged: true, rank: 2 });
+    const insert = queries.find((query) =>
+      query.sql.includes("INSERT INTO search_click"),
+    );
+    expect(insert?.args.slice(0, 3)).toEqual([42, 22, 2]);
+    expect(insert?.args).not.toContain(IP);
+  });
+
+  test("refuse a click without a search id", async () => {
+    const response = await logRequest("/api/log/click", '{"shotId":22}');
+    expect(response.status).toBe(400);
+  });
+});
