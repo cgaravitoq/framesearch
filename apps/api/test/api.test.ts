@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/app.ts";
-import { fakeDb, fakeEnv, fakeR2 } from "./support.ts";
+import { fakeDb, fakeEnv, fakeR2, fakeRateLimit } from "./support.ts";
 
 describe("films", () => {
   test("lists the published films ordered by title", async () => {
@@ -141,5 +141,21 @@ describe("search parameters", () => {
       );
       expect(response.status).toBe(400);
     }
+  });
+});
+
+describe("rate limit", () => {
+  test("answers 429 once the per-IP budget is spent", async () => {
+    const { db, queries } = fakeDb();
+    const env = fakeEnv({
+      DB: db,
+      SEARCH_RATE_LIMIT: fakeRateLimit(false),
+    });
+    for (const path of ["/api/search?q=fire", "/api/similar?id=7"]) {
+      const response = await createApp().request(path, {}, env);
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("60");
+    }
+    expect(queries).toEqual([]);
   });
 });
