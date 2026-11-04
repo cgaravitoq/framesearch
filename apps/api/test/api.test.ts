@@ -51,6 +51,28 @@ describe("frames", () => {
     expect(frames.keys).toEqual(["frames/night-of-the-living-dead/7.jpg"]);
   });
 
+  test("serves the first frame of a film, index zero", async () => {
+    const frames = fakeR2();
+    const response = await createApp().request(
+      "/frames/night-of-the-living-dead/0.jpg",
+      {},
+      fakeEnv({ FRAMES: frames.bucket }),
+    );
+    expect(response.status).toBe(404);
+    expect(frames.keys).toEqual(["frames/night-of-the-living-dead/0.jpg"]);
+  });
+
+  test("refuses a frame index with a leading zero", async () => {
+    const frames = fakeR2();
+    const response = await createApp().request(
+      "/frames/night-of-the-living-dead/07.jpg",
+      {},
+      fakeEnv({ FRAMES: frames.bucket }),
+    );
+    expect(response.status).toBe(400);
+    expect(frames.keys).toEqual([]);
+  });
+
   test("refuses a film slug that could escape frames/", async () => {
     const frames = fakeR2();
     const response = await createApp().request(
@@ -62,7 +84,7 @@ describe("frames", () => {
     expect(frames.keys).toEqual([]);
   });
 
-  test("refuses a frame index that is not a positive integer", async () => {
+  test("refuses a frame index that is not a non-negative integer", async () => {
     const frames = fakeR2();
     const response = await createApp().request(
       "/frames/night-of-the-living-dead/..%2Fsecret.jpg",

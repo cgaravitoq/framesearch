@@ -14,6 +14,7 @@ import { runSearch, runSimilar } from "./search.ts";
 import { hash, publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
+const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
 const SEARCH_CACHE_SECONDS = 3600;
 const MISSING_EMBEDDINGS =
@@ -36,9 +37,11 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!name.endsWith(FRAME_SUFFIX)) {
       return failure(`no frame for ${c.req.path}`, 404);
     }
-    const idx = parseShotId(name.slice(0, -FRAME_SUFFIX.length));
-    if (!idx.ok) return failure(idx.error, 400);
-    const object = await c.env.FRAMES.get(frameKey(film.value, idx.value));
+    const idx = name.slice(0, -FRAME_SUFFIX.length);
+    if (!FRAME_INDEX.test(idx)) {
+      return failure("frame index must be a non-negative integer", 400);
+    }
+    const object = await c.env.FRAMES.get(frameKey(film.value, Number(idx)));
     if (object === null) return failure("frame not found", 404);
     return new Response(object.body, {
       headers: {
