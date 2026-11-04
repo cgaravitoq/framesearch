@@ -82,3 +82,64 @@ describe("frames", () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe("search parameters", () => {
+  test("refuses an empty query", async () => {
+    const response = await createApp().request("/api/search?q=", {}, fakeEnv());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "q is empty" });
+  });
+
+  test("refuses a query over the length limit", async () => {
+    const response = await createApp().request(
+      `/api/search?q=${"a".repeat(501)}`,
+      {},
+      fakeEnv(),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  test("refuses a k outside the range", async () => {
+    for (const k of ["0", "61", "abc"]) {
+      const response = await createApp().request(
+        `/api/search?q=fire&k=${k}`,
+        {},
+        fakeEnv(),
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("refuses a film that is not a slug", async () => {
+    const response = await createApp().request(
+      "/api/search?q=fire&film=..%2F..%2Fetc",
+      {},
+      fakeEnv(),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  test("answers 503 while the embeddings secrets are missing", async () => {
+    const response = await createApp().request(
+      "/api/search?q=fire",
+      {},
+      fakeEnv(),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error:
+        "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set",
+    });
+  });
+
+  test("refuses a similar id that is not a positive integer", async () => {
+    for (const id of ["", "abc", "0", "-3"]) {
+      const response = await createApp().request(
+        `/api/similar?id=${id}`,
+        {},
+        fakeEnv(),
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+});

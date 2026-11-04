@@ -1,11 +1,21 @@
-import { parseFilmSlug, parseShotId } from "@framesearch/core";
+import {
+  parseFilmSlug,
+  parseK,
+  parseQuery,
+  parseShotId,
+} from "@framesearch/core";
 import type { Film } from "@framesearch/schema";
 import { frameKey } from "@framesearch/schema";
 import { Hono } from "hono";
+import { embeddingsConfig } from "./embeddings.ts";
 import type { Env } from "./env.ts";
+import { runSearch, runSimilar } from "./search.ts";
+import { publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
+const MISSING_EMBEDDINGS =
+  "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set";
 
 export function createApp(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
@@ -35,6 +45,45 @@ export function createApp(): Hono<{ Bindings: Env }> {
         etag: object.httpEtag,
       },
     });
+  });
+
+  app.get("/api/search", async (c) => {
+    const query = parseQuery(c.req.query("q") ?? null);
+    if (!query.ok) return failure(query.error, 400);
+    const film = filmParam(c.req.query("film") ?? null);
+    if (!film.ok) return failure(film.error, 400);
+    const k = parseK(c.req.query("k") ?? null);
+    if (!k.ok) return failure(k.error, 400);
+    const embeddings = embeddingsConfig(c.env);
+    if (embeddings === null) return failure(MISSING_EMBEDDINGS, 503);
+    const published = await publishedFilms(c.env);
+    try {
+      return json(
+        await runSearch(c.env, embeddings, published, {
+          film: film.value,
+          k: k.value,
+          query: query.value,
+        }),
+      );
+    } catch (error) {
+      return failure(message(error), 502);
+    }
+  });
+
+  app.get("/api/similar", async (c) => {
+    const id = parseShotId(c.req.query("id") ?? "");
+    if (!id.ok) return failure(id.error, 400);
+    const k = parseK(c.req.query("k") ?? null);
+    if (!k.ok) return failure(k.error, 400);
+    const published = await publishedFilms(c.env);
+    try {
+      return json({
+        results: await runSimilar(c.env, published, id.value, k.value),
+        shotId: id.value,
+      });
+    } catch (error) {
+      return failure(message(error), 502);
+    }
   });
 
   app.notFound((c) => failure(`no route for ${c.req.path}`, 404));
@@ -67,4 +116,14 @@ function failure(
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+type FilmChoice =
+  | { ok: true; value: string | null }
+  | { ok: false; error: string };
+
+function filmParam(raw: string | null): FilmChoice {
+  if (raw === null || raw.trim() === "") return { ok: true, value: null };
+  const film = parseFilmSlug(raw.trim());
+  return film.ok ? { ok: true, value: film.value } : film;
 }
