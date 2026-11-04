@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
 export const SCENE_THRESHOLD = 0.3;
 export const FRAME_CONCURRENCY = 6;
 const PTS_PATTERN = /pts_time:([0-9]+(?:\.[0-9]+)?)/g;
@@ -128,8 +131,9 @@ export async function extractFrames(
   times: readonly number[],
   outDir: string,
 ): Promise<string[]> {
-  const paths = times.map(
-    (_, idx) => `${outDir}/${String(idx).padStart(5, "0")}.jpg`,
+  await mkdir(outDir, { recursive: true });
+  const paths = times.map((_, idx) =>
+    join(outDir, `${String(idx).padStart(5, "0")}.jpg`),
   );
   let cursor = 0;
   const worker = async (): Promise<void> => {

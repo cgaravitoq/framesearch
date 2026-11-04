@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { encodeVectors, type Film } from "@framesearch/schema";
 import { CAPTION_PREFIX, captionImages, MAX_COST_USD } from "./caption.ts";
 import { DUPLICATE_THRESHOLD, dedupConsecutive } from "./dedup.ts";
@@ -120,6 +120,7 @@ export async function indexFilm(options: IndexOptions): Promise<IndexReport> {
     const film: Film = { slug, title, duration };
 
     const filmDir = filmFramesDir(dir, slug);
+    await mkdir(dirname(filmDir), { recursive: true });
     await rm(filmDir, { recursive: true, force: true });
     await rename(keptDir, filmDir);
 
