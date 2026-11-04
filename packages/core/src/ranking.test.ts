@@ -99,4 +99,13 @@ describe("int8 vector store", () => {
 
     expect(actual).toEqual(expected);
   });
+
+  test("ranks an empty caption column without throwing", () => {
+    const frames: ShotVector[] = [
+      { shotId: 1, values: new Int8Array(DIM).fill(1) },
+    ];
+    const vectors: FilmVectors = { dim: DIM, frames, captions: [] };
+    const store = createVectorStore([{ film: FILM, vectors }]);
+    expect(store.rank(unit(random(5)), { kind: "caption" })).toEqual([]);
+  });
 });

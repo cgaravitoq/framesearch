@@ -76,6 +76,7 @@ function rank(
   options: RankOptions,
 ): RankedShot[] {
   const { dim, shotIds, filmSlots, values } = column;
+  if (shotIds.length === 0) return [];
   if (query.length !== dim) {
     throw new Error(`query holds ${query.length} values, expected ${dim}`);
   }
