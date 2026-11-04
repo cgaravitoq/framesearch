@@ -1,5 +1,9 @@
 import type { Hit, SearchReply } from "@framesearch/schema";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   type FormEvent,
   useCallback,
@@ -37,6 +41,8 @@ export function SearchPage() {
   const [hero, setHero] = useState<Hit | null>(null);
   const [similarFrom, setSimilarFrom] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const queryClient = useQueryClient();
   const settledLog = useRef<{
     reply: SearchReply;
     id: Promise<number | null>;
@@ -72,6 +78,7 @@ export function SearchPage() {
     const trimmed = input.trim();
     if (trimmed.length < MIN_QUERY_LENGTH || trimmed === term) return;
     const timer = setTimeout(() => setTerm(trimmed), DEBOUNCE_MS);
+    debounceTimer.current = timer;
     return () => clearTimeout(timer);
   }, [input, term]);
 
@@ -103,6 +110,12 @@ export function SearchPage() {
   const pickExample = (example: string) => {
     setInput(example);
     setTerm(example);
+  };
+
+  const findSimilar = (shot: Hit) => {
+    clearTimeout(debounceTimer.current);
+    void queryClient.cancelQueries({ queryKey: ["search"] });
+    setSimilarFrom(shot.shotId);
   };
 
   const pickShot = (shot: Hit) => {
@@ -168,7 +181,7 @@ export function SearchPage() {
         <Hero
           shot={hero}
           similarPending={similar.isFetching}
-          onSimilar={() => setSimilarFrom(hero.shotId)}
+          onSimilar={() => findSimilar(hero)}
         />
       )}
 
