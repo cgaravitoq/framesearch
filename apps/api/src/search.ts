@@ -29,6 +29,8 @@ interface KeywordRow {
   score: number;
 }
 
+const SAME_SHOT_QUERY =
+  "SELECT sibling.id FROM shots s JOIN shots sibling ON sibling.film = s.film AND sibling.shot_start = s.shot_start AND sibling.shot_end = s.shot_end WHERE s.id = ?1";
 const KEYWORD_QUERY =
   "SELECT rowid AS id, bm25(shots_fts) AS score FROM shots_fts WHERE shots_fts MATCH ?1 ORDER BY score LIMIT ?2";
 const KEYWORD_QUERY_FILM =
@@ -79,14 +81,23 @@ export async function runSimilar(
   const vectors = await loadVectors(env, published);
   const source = vectors.frames.get(shotId);
   if (source === undefined) return [];
+  const sameShot = await sameShotIds(env, shotId);
   const ranked = vectors.store
     .rank(toQuery(source.values), {
       exclude: shotId,
       film: source.film,
       kind: "frame",
     })
+    .filter((hit) => !sameShot.has(hit.shotId))
     .slice(0, MAX_K);
   return await fuseToHits(env, [{ signal: "frame", hits: ranked }], k);
+}
+
+async function sameShotIds(env: Env, shotId: number): Promise<Set<number>> {
+  const { results } = await env.DB.prepare(SAME_SHOT_QUERY)
+    .bind(shotId)
+    .all<{ id: number }>();
+  return new Set(results.map((row) => row.id));
 }
 
 function rankOptions(

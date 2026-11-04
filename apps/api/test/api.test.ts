@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { encodeVectors, vectorsKey } from "@framesearch/schema";
 import { createApp } from "../src/app.ts";
 import { fakeDb, fakeEnv, fakeR2, fakeRateLimit } from "./support.ts";
 
@@ -163,6 +164,54 @@ describe("search parameters", () => {
       );
       expect(response.status).toBe(400);
     }
+  });
+});
+
+describe("similar", () => {
+  test("never answers with another frame of the shot it was asked about", async () => {
+    const film = "night-of-the-living-dead";
+    const shot = (id: number, shotStart: number, shotEnd: number) => ({
+      caption: null,
+      film,
+      id,
+      idx: id - 1,
+      shotEnd,
+      shotStart,
+      tags: "[]",
+      time: shotStart,
+      title: "Night of the Living Dead",
+    });
+    const shots = [shot(1, 0, 4), shot(2, 0, 4), shot(3, 4, 9)];
+    const { db } = fakeDb({
+      rows: (sql) => {
+        if (sql.includes("SELECT slug FROM films")) return [{ slug: film }];
+        if (sql.includes("sibling")) return [{ id: 1 }, { id: 2 }];
+        return shots;
+      },
+    });
+    const frames = fakeR2({
+      [vectorsKey(film)]: encodeVectors({
+        captions: [],
+        dim: 2,
+        frames: [
+          { shotId: 1, values: Int8Array.from([127, 0]) },
+          { shotId: 2, values: Int8Array.from([120, 40]) },
+          { shotId: 3, values: Int8Array.from([90, 90]) },
+        ],
+      }),
+    });
+    const response = await createApp().request(
+      "/api/similar?id=1&k=12",
+      {},
+      fakeEnv({ DB: db, FRAMES: frames.bucket }),
+    );
+    expect(response.status).toBe(200);
+    const reply = (await response.json()) as {
+      shotId: number;
+      results: { shotId: number }[];
+    };
+    expect(reply.shotId).toBe(1);
+    expect(reply.results.map((hit) => hit.shotId)).toEqual([3]);
   });
 });
 

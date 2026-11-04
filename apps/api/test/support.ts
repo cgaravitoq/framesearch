@@ -16,14 +16,17 @@ export interface FakeDb {
 }
 
 export interface FakeDbOptions {
-  rows?: unknown[];
+  rows?: unknown[] | ((sql: string) => unknown[]);
   lastRowId?: number;
 }
 
 export function fakeDb(options: FakeDbOptions = {}): FakeDb {
   const queries: Query[] = [];
-  const rows = options.rows ?? [];
-  const prepared = () => ({
+  const rowsFor = (sql: string): unknown[] => {
+    const rows = options.rows ?? [];
+    return typeof rows === "function" ? rows(sql) : rows;
+  };
+  const prepared = (rows: unknown[]) => ({
     all: async () => ({ results: rows, success: true, meta: {} }),
     first: async () => rows[0] ?? null,
     run: async () => ({
@@ -33,10 +36,10 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
     }),
   });
   const prepare = (sql: string) => ({
-    ...prepared(),
+    ...prepared(rowsFor(sql)),
     bind(...args: unknown[]) {
       queries.push({ sql, args });
-      return prepared();
+      return prepared(rowsFor(sql));
     },
   });
   return { db: { prepare } as unknown as D1Database, queries };
@@ -47,12 +50,15 @@ export interface FakeR2 {
   keys: string[];
 }
 
-export function fakeR2(): FakeR2 {
+export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
   const keys: string[] = [];
   const bucket = {
     get: async (key: string) => {
       keys.push(key);
-      return null;
+      const bytes = objects[key];
+      return bytes === undefined
+        ? null
+        : { arrayBuffer: async () => bytes.slice().buffer };
     },
   };
   return { bucket: bucket as unknown as R2Bucket, keys };
