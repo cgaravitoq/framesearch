@@ -10,3 +10,5 @@ export type {
   VectorKind,
   VectorStore,
 } from "./types.ts";
+export type { FilmVectors, ShotVector } from "./vectors.ts";
+export { decodeVectors, encodeVectors } from "./vectors.ts";
