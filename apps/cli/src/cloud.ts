@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { publishedFramesSql } from "./sql.ts";
 
 const WRANGLER = ["npx", "-y", "wrangler@4"];
@@ -38,7 +38,7 @@ export async function putObject(
     "put",
     `${bucketName()}/${key}`,
     "--file",
-    file,
+    resolve(file),
     "--content-type",
     contentType,
     "--remote",
@@ -115,9 +115,10 @@ export async function mapBounded<T>(
   );
 }
 
-async function wrangler(args: readonly string[]): Promise<string> {
+export async function wrangler(args: readonly string[]): Promise<string> {
   const proc = Bun.spawn({
     cmd: [...WRANGLER, ...args],
+    cwd: tmpdir(),
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
