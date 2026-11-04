@@ -24,6 +24,14 @@
         "wrangler": "4.157.0",
       },
     },
+    "apps/cli": {
+      "name": "@framesearch/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@framesearch/core": "workspace:*",
+        "@framesearch/schema": "workspace:*",
+      },
+    },
     "apps/web": {
       "name": "@framesearch/web",
       "version": "0.0.0",
@@ -152,6 +160,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.2", "", { "os": "win32", "cpu": "x64" }, "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g=="],
 
     "@framesearch/api": ["@framesearch/api@workspace:apps/api"],
+
+    "@framesearch/cli": ["@framesearch/cli@workspace:apps/cli"],
 
     "@framesearch/core": ["@framesearch/core@workspace:packages/core"],
 
