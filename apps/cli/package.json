@@ -1,0 +1,15 @@
+{
+  "name": "@framesearch/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "framesearch": "bun src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@framesearch/core": "workspace:*",
+    "@framesearch/schema": "workspace:*"
+  }
+}

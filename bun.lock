@@ -11,6 +11,14 @@
         "typescript": "7.0.2",
       },
     },
+    "apps/cli": {
+      "name": "@framesearch/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@framesearch/core": "workspace:*",
+        "@framesearch/schema": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@framesearch/core",
       "version": "0.0.0",
@@ -45,6 +53,8 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.6.5", "", { "os": "win32", "cpu": "arm64" }, "sha512-uBbfpdR/cH5up1iRJFGAPP97xKMzrgMs685CSrY7NM+Q4Unw7chY0o3JulEvJdmU6c6hGQxwqotMq7DDH0DzxA=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.6.5", "", { "os": "win32", "cpu": "x64" }, "sha512-07LaCeN9vvmbAAMOMsUjMfL5UbsCDkvVeyMJIgwNRc0xYqhizBGkjVzx05LYEwCXl2AiHcdzqVPR4IOYAsI1QQ=="],
+
+    "@framesearch/cli": ["@framesearch/cli@workspace:apps/cli"],
 
     "@framesearch/core": ["@framesearch/core@workspace:packages/core"],
 
