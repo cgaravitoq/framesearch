@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { decodeVectors, encodeVectors, type FilmVectors } from "./index.ts";
+import {
+  decodeVectors,
+  encodeVectors,
+  type FilmVectors,
+  quantizeVector,
+} from "./index.ts";
 
 const SAMPLE: FilmVectors = {
   dim: 4,
@@ -43,6 +48,12 @@ describe("vectors", () => {
     const bytes = Uint8Array.from([0, 0, 0, 0, ...encodeVectors(SAMPLE)]);
     expect(() => decodeVectors(bytes.subarray(0, 15))).toThrow(
       /not a framesearch vector file/,
+    );
+  });
+
+  test("quantizes a vector by its unit direction", () => {
+    expect(quantizeVector(Float32Array.from([3, -4]))).toEqual(
+      Int8Array.from([76, -102]),
     );
   });
 });

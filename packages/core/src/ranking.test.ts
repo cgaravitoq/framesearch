@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { FilmVectors, ShotVector } from "@framesearch/schema";
+import {
+  type FilmVectors,
+  quantizeVector,
+  type ShotVector,
+} from "@framesearch/schema";
 import { createVectorStore } from "./vector-store.ts";
 
 const DIM = 768;
@@ -27,14 +31,6 @@ function unit(next: () => number): Float32Array {
     values[at] = (values[at] ?? 0) * scale;
   }
   return values;
-}
-
-function quantize(values: Float32Array): Int8Array {
-  const bytes = new Int8Array(values.length);
-  for (let at = 0; at < values.length; at += 1) {
-    bytes[at] = Math.round((values[at] ?? 0) * 127);
-  }
-  return bytes;
 }
 
 function orthogonal(next: () => number, direction: Float32Array): Float32Array {
@@ -81,7 +77,7 @@ describe("int8 vector store", () => {
         values[at] = (values[at] ?? 0) * scale;
       }
       floats.push(values);
-      frames.push({ shotId: index + 1, values: quantize(values) });
+      frames.push({ shotId: index + 1, values: quantizeVector(values) });
     }
 
     const expected = floats

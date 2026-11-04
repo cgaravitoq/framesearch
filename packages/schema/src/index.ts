@@ -11,4 +11,4 @@ export type {
   VectorStore,
 } from "./types.ts";
 export type { FilmVectors, ShotVector } from "./vectors.ts";
-export { decodeVectors, encodeVectors } from "./vectors.ts";
+export { decodeVectors, encodeVectors, quantizeVector } from "./vectors.ts";

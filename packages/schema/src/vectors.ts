@@ -2,6 +2,7 @@ const MAGIC = 0x46535645;
 const VERSION = 1;
 const HEADER_BYTES = 15;
 const RECORD_HEADER_BYTES = 4;
+const INT8_SCALE = 127;
 
 export interface ShotVector {
   shotId: number;
@@ -12,6 +13,17 @@ export interface FilmVectors {
   dim: number;
   frames: ShotVector[];
   captions: ShotVector[];
+}
+
+export function quantizeVector(values: Float32Array): Int8Array {
+  let norm = 0;
+  for (const value of values) norm += value * value;
+  const scale = INT8_SCALE / Math.sqrt(norm);
+  const bytes = new Int8Array(values.length);
+  for (let at = 0; at < values.length; at += 1) {
+    bytes[at] = Math.round((values[at] ?? 0) * scale);
+  }
+  return bytes;
 }
 
 export function encodeVectors(vectors: FilmVectors): Uint8Array {
