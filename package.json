@@ -15,6 +15,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "TURBO_TELEMETRY_DISABLED=1 turbo run test",
+    "build": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
     "framesearch": "bun run --cwd apps/cli framesearch"
   },
   "devDependencies": {
