@@ -38,6 +38,7 @@ export function SearchPage() {
   const [input, setInput] = useState("");
   const [term, setTerm] = useState("");
   const [film, setFilm] = useState("");
+  const [submits, setSubmits] = useState(0);
   const [hero, setHero] = useState<Hit | null>(null);
   const [similarFrom, setSimilarFrom] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +55,7 @@ export function SearchPage() {
   });
 
   const search = useQuery({
-    queryKey: ["search", term, film],
+    queryKey: ["search", term, film, submits],
     queryFn: ({ signal }) => searchShots(term, film, signal),
     enabled: term !== "",
     placeholderData: keepPreviousData,
@@ -105,6 +106,7 @@ export function SearchPage() {
       return;
     }
     setTerm(trimmed);
+    setSubmits((count) => count + 1);
   };
 
   const pickExample = (example: string) => {
