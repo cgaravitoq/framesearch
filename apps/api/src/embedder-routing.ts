@@ -7,36 +7,55 @@ export const EMBEDDER_INSTANCES = [
   "overflow-2",
 ] as const;
 
+export const BUSY_HEADER = "x-embedder-busy";
+export const BUSY_STATUS = 503;
+
 const EMBEDDINGS_URL = "http://embedder/v1/embeddings";
-const inFlight = new Map<string, number>();
+const RETRY_STATUSES: ReadonlySet<number> = new Set([500, 502]);
+const WAIT_BUDGET_MS = 15_000;
+const WAIT_INTERVAL_MS = 100;
 
 export interface EmbedderReply {
   ok: boolean;
   status: number;
+  headers: { get(name: string): string | null };
   json(): Promise<unknown>;
 }
 
-export function idleInstance(counts: ReadonlyMap<string, number>): string {
-  let chosen: string = EMBEDDER_INSTANCES[0];
-  for (const name of EMBEDDER_INSTANCES) {
-    if ((counts.get(name) ?? 0) < (counts.get(chosen) ?? 0)) chosen = name;
-  }
-  return chosen;
+export function busyReply(): Response {
+  return new Response("the embedder instance is busy", {
+    headers: { [BUSY_HEADER]: "1", "content-type": "text/plain" },
+    status: BUSY_STATUS,
+  });
+}
+
+export function isBusy(reply: EmbedderReply): boolean {
+  return reply.status === BUSY_STATUS && reply.headers.get(BUSY_HEADER) === "1";
 }
 
 export async function postEmbeddings(
   namespace: DurableObjectNamespace<EmbedderContainer>,
   input: readonly string[],
 ): Promise<EmbedderReply> {
-  const name = idleInstance(inFlight);
-  inFlight.set(name, (inFlight.get(name) ?? 0) + 1);
-  try {
-    return await postTo(namespace, name, input);
-  } finally {
-    const pending = (inFlight.get(name) ?? 1) - 1;
-    if (pending === 0) inFlight.delete(name);
-    else inFlight.set(name, pending);
+  let retries = 1;
+  const last = EMBEDDER_INSTANCES.length - 1;
+  for (const [index, name] of EMBEDDER_INSTANCES.entries()) {
+    let reply: EmbedderReply;
+    try {
+      reply = await postTo(namespace, name, input);
+    } catch (error) {
+      if (retries === 0 || index === last) throw error;
+      retries -= 1;
+      continue;
+    }
+    if (isBusy(reply)) continue;
+    if (RETRY_STATUSES.has(reply.status) && retries > 0 && index < last) {
+      retries -= 1;
+      continue;
+    }
+    return reply;
   }
+  return await waitForPrimary(namespace, input);
 }
 
 export function warmPrimary(
@@ -44,6 +63,20 @@ export function warmPrimary(
   input: readonly string[],
 ): Promise<EmbedderReply> {
   return postTo(namespace, EMBEDDER_INSTANCES[0], input);
+}
+
+async function waitForPrimary(
+  namespace: DurableObjectNamespace<EmbedderContainer>,
+  input: readonly string[],
+): Promise<EmbedderReply> {
+  const deadline = Date.now() + WAIT_BUDGET_MS;
+  await sleep(WAIT_INTERVAL_MS);
+  let reply = await postTo(namespace, EMBEDDER_INSTANCES[0], input);
+  while (isBusy(reply) && Date.now() < deadline) {
+    await sleep(WAIT_INTERVAL_MS);
+    reply = await postTo(namespace, EMBEDDER_INSTANCES[0], input);
+  }
+  return reply;
 }
 
 function postTo(
@@ -56,4 +89,8 @@ function postTo(
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((settle) => setTimeout(settle, ms));
 }

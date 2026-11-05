@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
-import { EMBEDDER_INSTANCES, idleInstance } from "../src/embedder-routing.ts";
+import { EMBEDDER_INSTANCES, postEmbeddings } from "../src/embedder-routing.ts";
 import {
   type Embeddings,
   embeddingsConfig,
@@ -67,12 +67,13 @@ describe("container embeddings", () => {
   });
 
   test("reports the status when the container cannot embed", async () => {
-    const embedder = fakeEmbedder({ status: 503 });
+    const embedder = fakeEmbedder({ answer: 503 });
     const config: Embeddings = {
       kind: "container",
       namespace: embedder.namespace,
     };
     expect(embedQuery(config, "fire")).rejects.toThrow("answered 503");
+    expect(embedder.calls).toHaveLength(1);
   });
 
   test("refuses a reply without a vector", async () => {
@@ -86,27 +87,81 @@ describe("container embeddings", () => {
 });
 
 describe("container instances", () => {
-  test("fills the shared instance before the overflow ones", () => {
-    const empty = new Map<string, number>();
-    expect(idleInstance(empty)).toBe("primary");
-    expect(idleInstance(new Map([["primary", 1]]))).toBe("overflow-1");
-    expect(
-      idleInstance(
-        new Map([
-          ["primary", 2],
-          ["overflow-1", 1],
-        ]),
-      ),
-    ).toBe("overflow-2");
+  test("keeps the instance list on the deployed cap", () => {
+    const config = JSON.parse(
+      readFileSync(`${import.meta.dir}/../wrangler.jsonc`, "utf8"),
+    ) as { containers?: { max_instances?: number }[] };
+    const cap = config.containers?.[0]?.max_instances;
+    expect(cap).toBe(EMBEDDER_INSTANCES.length);
+    expect(new Set(EMBEDDER_INSTANCES).size).toBe(EMBEDDER_INSTANCES.length);
   });
 
-  test("never overflows past the capped instances", () => {
-    const busy = new Map(EMBEDDER_INSTANCES.map((name) => [name, 4]));
-    const chosen = idleInstance(busy);
-    expect(EMBEDDER_INSTANCES as readonly string[]).toContain(chosen);
+  test("moves to the next instance when one answers busy", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? "busy" : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
   });
 
-  test("spreads concurrent queries over the pool and returns to the shared instance", async () => {
+  test("retries a 502 once and no further", async () => {
+    const embedder = fakeEmbedder({ answer: 502 });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.status).toBe(502);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
+  });
+
+  test("retries the 500 a container restart answers with on the next instance", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? 500 : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
+  });
+
+  test("retries a connection failure on the next instance", async () => {
+    const embedder = fakeEmbedder({ unreachable: ["primary"] });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual(["overflow-1"]);
+  });
+
+  test("answers a 4xx without retrying", async () => {
+    const embedder = fakeEmbedder({ answer: 400 });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.status).toBe(400);
+    expect(embedder.calls.map((call) => call.instance)).toEqual(["primary"]);
+  });
+
+  test("waits on the shared instance once every instance is busy", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance, seen) =>
+        instance === "primary" && seen > 2 ? 200 : "busy",
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+      "overflow-2",
+      "primary",
+      "primary",
+      "primary",
+    ]);
+  });
+
+  test("spreads concurrent queries over the pool", async () => {
     const embedder = fakeEmbedder({ hold: true });
     const config: Embeddings = {
       kind: "container",
@@ -116,16 +171,18 @@ describe("container instances", () => {
       embedQuery(config, "a"),
       embedQuery(config, "b"),
       embedQuery(config, "c"),
-      embedQuery(config, "d"),
     ];
-    const instances = embedder.calls.map((call) => call.instance);
-    expect(instances).toEqual([...EMBEDDER_INSTANCES, "primary"]);
+    await Bun.sleep(0);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "primary",
+      "primary",
+      "overflow-1",
+      "overflow-1",
+      "overflow-2",
+    ]);
     embedder.release();
     await Promise.all(pending);
-    const reused = embedQuery(config, "e");
-    embedder.release();
-    await reused;
-    expect(embedder.calls.at(-1)?.instance).toBe("primary");
   });
 });
 
@@ -146,33 +203,13 @@ describe("prewarm", () => {
     ]);
   });
 
-  test("wakes only the shared instance and leaves it free for searches", async () => {
-    const embedder = fakeEmbedder({ hold: true });
-    const env = fakeEnv({ EMBEDDER: embedder.namespace });
-    const config: Embeddings = {
-      kind: "container",
-      namespace: embedder.namespace,
-    };
-    const searching = embedQuery(config, "a");
-    const warming = prewarmEmbeddings(env, "203.0.113.7");
-    await Bun.sleep(0);
-    const after = embedQuery(config, "b");
-    expect(embedder.calls.map((call) => call.instance)).toEqual([
-      "primary",
-      "primary",
-      "overflow-1",
-    ]);
-    embedder.release();
-    await Promise.all([searching, warming, after]);
-    const warmingAgain = prewarmEmbeddings(env, "203.0.113.7");
-    await Bun.sleep(0);
-    const next = embedQuery(config, "c");
-    embedder.release();
-    await Promise.all([warmingAgain, next]);
-    expect(embedder.calls.slice(-2).map((call) => call.instance)).toEqual([
-      "primary",
-      "primary",
-    ]);
+  test("counts a busy shared instance as warm", async () => {
+    const embedder = fakeEmbedder({ answer: "busy" });
+    const warm = await prewarmEmbeddings(
+      fakeEnv({ EMBEDDER: embedder.namespace }),
+      "203.0.113.7",
+    );
+    expect(warm).toBe("warm");
   });
 
   test("does nothing when a remote URL serves the embeddings", async () => {
@@ -222,19 +259,46 @@ describe("embedder image", () => {
     "utf8",
   );
 
-  test("builds from a base image pinned by digest", () => {
+  test("builds from a base image pinned by digest and installs no apt package", () => {
     const bases = dockerfile.match(/^FROM .+$/gm) ?? [];
     expect(bases.length).toBeGreaterThan(0);
     for (const base of bases) expect(base).toMatch(/@sha256:[0-9a-f]{64}$/);
+    expect(dockerfile).not.toMatch(/apt-get|apt install/);
+  });
+
+  test("names a fixed commit for every download", () => {
+    expect(dockerfile).toMatch(/^ARG LLAMA_TAG=b\d+$/m);
+    expect(dockerfile).toMatch(/^ARG MODEL_COMMIT=[0-9a-f]{40}$/m);
+    const downloads = dockerfile.match(/^ADD (https:\/\/\S+)/gm) ?? [];
+    expect(downloads).toHaveLength(4);
+    for (const download of downloads) {
+      expect(download).toMatch(
+        /\$\{LLAMA_TAG\}|\$\{MODEL_COMMIT\}|_[0-9][^/]*_amd64\.deb$/,
+      );
+    }
+  });
+
+  test("fetches every .deb from a dated Ubuntu snapshot that survives a newer upload", () => {
+    const debs = dockerfile.match(/^ADD \S+\.deb /gm) ?? [];
+    expect(debs.length).toBeGreaterThan(0);
+    for (const deb of debs) {
+      expect(deb).toMatch(
+        /^ADD https:\/\/snapshot\.ubuntu\.com\/ubuntu\/\d{8}T\d{6}Z\/pool\//,
+      );
+    }
   });
 
   test("checks every download against a pinned sha256", () => {
-    const steps = dockerfile
-      .split(/^RUN /m)
-      .filter((step) => /curl -/.test(step));
-    expect(steps.length).toBe(2);
-    for (const step of steps) expect(step).toMatch(/sha256sum -c -/);
-    expect(dockerfile).toMatch(/^ARG LLAMA_SHA256=[0-9a-f]{64}$/m);
-    expect(dockerfile).toMatch(/^ARG MODEL_SHA256=[0-9a-f]{64}$/m);
+    const pins = [
+      ...dockerfile.matchAll(/^ARG (\w+_SHA256)=([0-9a-f]{64})$/gm),
+    ];
+    expect(pins.map((pin) => pin[1]).sort()).toEqual([
+      "LIBBROTLI_SHA256",
+      "LIBGOMP_SHA256",
+      "LLAMA_SHA256",
+      "MODEL_SHA256",
+    ]);
+    for (const pin of pins) expect(dockerfile).toContain(`"\${${pin[1]}}  `);
+    expect(dockerfile.match(/sha256sum -c -/g)).toHaveLength(pins.length);
   });
 });

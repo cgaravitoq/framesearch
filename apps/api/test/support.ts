@@ -5,6 +5,7 @@ import type {
   RateLimit,
 } from "@cloudflare/workers-types";
 import type { EmbedderContainer } from "../src/embedder.ts";
+import { busyReply } from "../src/embedder-routing.ts";
 import type { Env } from "../src/env.ts";
 
 export interface Query {
@@ -108,35 +109,63 @@ export interface FakeEmbedder {
 }
 
 export interface FakeEmbedderOptions {
+  answer?: FakeAnswer | ((instance: string, seen: number) => FakeAnswer);
   hold?: boolean;
-  status?: number;
+  unreachable?: readonly string[];
   vector?: number[];
 }
+
+export type FakeAnswer = number | "busy";
 
 export function fakeEmbedder(options: FakeEmbedderOptions = {}): FakeEmbedder {
   const calls: EmbedderCall[] = [];
   const waiting: (() => void)[] = [];
-  const reply = (): Response =>
-    options.status !== undefined && options.status !== 200
-      ? new Response("embedder unavailable", { status: options.status })
-      : new Response(
-          JSON.stringify({
-            data: [{ embedding: options.vector ?? [3, 4], index: 0 }],
-          }),
-          { headers: { "content-type": "application/json" } },
-        );
+  const occupied = new Set<string>();
+  const seen = new Map<string, number>();
+  const answerFor = (instance: string): FakeAnswer => {
+    const before = seen.get(instance) ?? 0;
+    seen.set(instance, before + 1);
+    const scripted = options.answer ?? 200;
+    return typeof scripted === "function"
+      ? scripted(instance, before)
+      : scripted;
+  };
+  const reply = (answer: FakeAnswer): Response => {
+    if (answer === "busy") return busyReply();
+    if (answer !== 200) {
+      return new Response("embedder unavailable", { status: answer });
+    }
+    return new Response(
+      JSON.stringify({
+        data: [{ embedding: options.vector ?? [3, 4], index: 0 }],
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  };
   const stub = (instance: string) => ({
     fetch: async (url: string, init?: RequestInit) => {
+      if (options.unreachable?.includes(instance) === true) {
+        throw new Error(`no embedder at ${instance}`);
+      }
       const body = typeof init?.body === "string" ? init.body : "";
       calls.push({
         input: JSON.parse(body === "" ? "{}" : body),
         instance,
         path: new URL(url).pathname,
       });
+      const answer = answerFor(instance);
+      if (answer === "busy") return reply(answer);
+      if (options.hold === true && occupied.has(instance)) return busyReply();
       if (options.hold === true) {
-        await new Promise<void>((resolve) => waiting.push(resolve));
+        occupied.add(instance);
+        await new Promise<void>((resolve) =>
+          waiting.push(() => {
+            occupied.delete(instance);
+            resolve();
+          }),
+        );
       }
-      return reply();
+      return reply(answer);
     },
   });
   const namespace = {

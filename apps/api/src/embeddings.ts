@@ -3,6 +3,7 @@ import { embedText } from "@framesearch/core";
 import type { EmbedderContainer } from "./embedder.ts";
 import {
   type EmbedderReply,
+  isBusy,
   postEmbeddings,
   warmPrimary,
 } from "./embedder-routing.ts";
@@ -57,7 +58,7 @@ export async function prewarmEmbeddings(
   });
   if (!success) return "limited";
   const response = await warmPrimary(config.namespace, [PREWARM_TEXT]);
-  if (!response.ok) {
+  if (!response.ok && !isBusy(response)) {
     throw new Error(
       `the embedder answered ${response.status} to the prewarm request`,
     );

@@ -1,4 +1,5 @@
 import { Container } from "@cloudflare/containers";
+import { busyReply } from "./embedder-routing.ts";
 import type { Env } from "./env.ts";
 
 const HEALTH_URL = "http://localhost/health";
@@ -10,6 +11,18 @@ export class EmbedderContainer extends Container<Env> {
   override sleepAfter = "5m";
   override enableInternet = false;
   override pingEndpoint = "health";
+
+  private pending = 0;
+
+  override async fetch(request: Request): Promise<Response> {
+    if (this.pending > 0) return busyReply();
+    this.pending += 1;
+    try {
+      return await super.fetch(request);
+    } finally {
+      this.pending -= 1;
+    }
+  }
 
   override async onStart(): Promise<void> {
     const deadline = Date.now() + READY_TIMEOUT_MS;
