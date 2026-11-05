@@ -30,7 +30,7 @@ export function busyReply(): Response {
 }
 
 export function isBusy(reply: EmbedderReply): boolean {
-  return reply.status === BUSY_STATUS && reply.headers.get(BUSY_HEADER) === "1";
+  return reply.status === BUSY_STATUS;
 }
 
 export async function postEmbeddings(

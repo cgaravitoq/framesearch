@@ -78,10 +78,17 @@ export async function publishFilm(
     await cloud.putObjects([
       { key, file: localVectors, contentType: "application/octet-stream" },
     ]);
-    await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
-      cloud.deleteObject(frameKey(slug, idx)),
-    );
     await cloud.executeSql(publishedVersionSql(slug, Date.now()));
+    try {
+      await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
+        cloud.deleteObject(frameKey(slug, idx)),
+      );
+    } catch (error) {
+      throw new Error(
+        `${slug} is published as ${key}, but ${stale.length} stale frames stay in R2: ${reason(error)}; publish it again to clean them up`,
+        { cause: error },
+      );
+    }
 
     return {
       film: slug,
@@ -95,4 +102,8 @@ export async function publishFilm(
   } finally {
     db.close();
   }
+}
+
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

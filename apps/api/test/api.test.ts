@@ -13,6 +13,7 @@ import {
   fakeEnv,
   fakeR2,
   fakeRateLimit,
+  withFakeTime,
 } from "./support.ts";
 
 describe("films", () => {
@@ -253,6 +254,32 @@ describe("search cache", () => {
     }
   });
 
+  test("answers a remote embeddings 503 with the generic 502, not busy", async () => {
+    const fixture = searchFixture("the-terror", 1);
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+      (async () =>
+        new Response("upstream overloaded", {
+          status: 503,
+        })) as unknown as typeof fetch,
+    );
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/search?q=castle",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get("retry-after")).toBeNull();
+      expect(await response.json()).toEqual({
+        error: "Search is temporarily unavailable",
+      });
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
   test("answers an embedding failure with a generic 502", async () => {
     const fixture = searchFixture("the-terror", 1);
     const spy = spyOn(globalThis, "fetch").mockImplementation((async () => {
@@ -352,6 +379,30 @@ describe("search availability", () => {
     const reply = (await response.json()) as SearchReply;
     expect(reply.results.map((hit) => hit.shotId)).toEqual([1, 2]);
     expect(embedder.calls.map((call) => call.instance)).toEqual(["primary"]);
+  });
+
+  test("answers a busy embedder with a 503 the user can retry", async () => {
+    const fixture = searchFixture("white-zombie", 2);
+    const embedder = fakeEmbedder({ answer: "busy", vector: [1, 0] });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await withFakeTime(async () =>
+      createApp().request(
+        "/api/search?q=a%20busy%20zombie%20at%20the%20mill",
+        {},
+        env,
+      ),
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("2");
+    expect(await response.json()).toEqual({
+      error: "Search is busy, try again in a moment",
+    });
   });
 });
 

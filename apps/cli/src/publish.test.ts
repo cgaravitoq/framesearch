@@ -75,7 +75,7 @@ function writeFrames(dir: string, shots: readonly StoredShot[]): void {
 
 function fakeCloud(
   published: number[],
-  failAt?: "rows",
+  failAt?: "rows" | "stale",
 ): { cloud: Cloud; calls: string[]; sql: string[] } {
   const calls: string[] = [];
   const sql: string[] = [];
@@ -85,6 +85,7 @@ function fakeCloud(
     },
     deleteObject: async (key) => {
       calls.push(`delete ${key}`);
+      if (failAt === "stale") throw new Error("R2 refused the delete");
     },
     executeSql: async (statements) => {
       sql.push(statements);
@@ -173,18 +174,40 @@ describe("publish", () => {
     expect(calls).toEqual([`put ${frameKeys(shots)}`]);
   });
 
-  test("removes the frames an earlier, longer cut left in R2", async () => {
+  test("removes the frames an earlier, longer cut left in R2 after the version lands", async () => {
     const dir = dataDir();
     const shots = seed(dir);
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4]);
     await publishFilm(SLUG, { dataDir: dir, cloud });
-    expect(calls.filter((call) => call.startsWith("delete "))).toEqual([
+    expect(calls).toEqual([
+      `put ${frameKeys(shots)}`,
+      "rows",
+      `put vectors/${SLUG}.bin`,
+      "version",
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/4.jpg`,
     ]);
-    expect(calls.at(-1)).toBe("version");
+  });
+
+  test("leaves the new version live when the stale-frame cleanup fails", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4], "stale");
+    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
+      /is published as vectors\/night-of-the-living-dead.bin, but 2 stale frames stay in R2: R2 refused the delete; publish it again/,
+    );
+    expect(calls).toEqual([
+      `put ${frameKeys(shots)}`,
+      "rows",
+      `put vectors/${SLUG}.bin`,
+      "version",
+      `delete frames/${SLUG}/3.jpg`,
+      `delete frames/${SLUG}/4.jpg`,
+    ]);
   });
 
   test("refuses a store whose vectors file lost a frame", async () => {
@@ -262,7 +285,7 @@ describe("publish", () => {
 });
 
 describe("unpublish", () => {
-  test("removes the vectors, then the rows, then the frames", async () => {
+  test("deletes the published version first, then the rows, the vectors and the frames", async () => {
     const { cloud, calls, sql } = fakeCloud([0, 1, 2]);
     await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
     expect(calls).toEqual([
@@ -272,6 +295,16 @@ describe("unpublish", () => {
       `delete frames/${SLUG}/1.jpg`,
       `delete frames/${SLUG}/2.jpg`,
     ]);
-    expect(sql[0]).toContain(`DELETE FROM published WHERE film = '${SLUG}'`);
+    const statements = statementsOf(sql[0] ?? "");
+    expect(statements[DDL.length]).toBe(
+      `DELETE FROM published WHERE film = '${SLUG}'`,
+    );
   });
 });
+
+function statementsOf(batch: string): string[] {
+  return batch
+    .split(";\n")
+    .map((statement) => statement.trim())
+    .filter((statement) => statement !== "");
+}
