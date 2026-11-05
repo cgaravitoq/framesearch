@@ -222,19 +222,36 @@ describe("embedder image", () => {
     "utf8",
   );
 
-  test("builds from a base image pinned by digest", () => {
+  test("builds from a base image pinned by digest and installs no apt package", () => {
     const bases = dockerfile.match(/^FROM .+$/gm) ?? [];
     expect(bases.length).toBeGreaterThan(0);
     for (const base of bases) expect(base).toMatch(/@sha256:[0-9a-f]{64}$/);
+    expect(dockerfile).not.toMatch(/apt-get|apt install/);
+  });
+
+  test("names a fixed commit for every download", () => {
+    expect(dockerfile).toMatch(/^ARG LLAMA_TAG=b\d+$/m);
+    expect(dockerfile).toMatch(/^ARG MODEL_COMMIT=[0-9a-f]{40}$/m);
+    const downloads = dockerfile.match(/^ADD (https:\/\/\S+)/gm) ?? [];
+    expect(downloads).toHaveLength(4);
+    for (const download of downloads) {
+      expect(download).toMatch(
+        /\$\{LLAMA_TAG\}|\$\{MODEL_COMMIT\}|_[0-9][^/]*_amd64\.deb$/,
+      );
+    }
   });
 
   test("checks every download against a pinned sha256", () => {
-    const steps = dockerfile
-      .split(/^RUN /m)
-      .filter((step) => /curl -/.test(step));
-    expect(steps.length).toBe(2);
-    for (const step of steps) expect(step).toMatch(/sha256sum -c -/);
-    expect(dockerfile).toMatch(/^ARG LLAMA_SHA256=[0-9a-f]{64}$/m);
-    expect(dockerfile).toMatch(/^ARG MODEL_SHA256=[0-9a-f]{64}$/m);
+    const pins = [
+      ...dockerfile.matchAll(/^ARG (\w+_SHA256)=([0-9a-f]{64})$/gm),
+    ];
+    expect(pins.map((pin) => pin[1]).sort()).toEqual([
+      "LIBBROTLI_SHA256",
+      "LIBGOMP_SHA256",
+      "LLAMA_SHA256",
+      "MODEL_SHA256",
+    ]);
+    for (const pin of pins) expect(dockerfile).toContain(`"\${${pin[1]}}  `);
+    expect(dockerfile.match(/sha256sum -c -/g)).toHaveLength(pins.length);
   });
 });
