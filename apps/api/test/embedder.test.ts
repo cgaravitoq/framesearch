@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
-import { EMBEDDER_INSTANCES, idleInstance } from "../src/embedder-routing.ts";
+import { postEmbeddings } from "../src/embedder-routing.ts";
 import {
   type Embeddings,
   embeddingsConfig,
@@ -67,12 +67,13 @@ describe("container embeddings", () => {
   });
 
   test("reports the status when the container cannot embed", async () => {
-    const embedder = fakeEmbedder({ status: 503 });
+    const embedder = fakeEmbedder({ answer: 503 });
     const config: Embeddings = {
       kind: "container",
       namespace: embedder.namespace,
     };
     expect(embedQuery(config, "fire")).rejects.toThrow("answered 503");
+    expect(embedder.calls).toHaveLength(1);
   });
 
   test("refuses a reply without a vector", async () => {
@@ -86,27 +87,60 @@ describe("container embeddings", () => {
 });
 
 describe("container instances", () => {
-  test("fills the shared instance before the overflow ones", () => {
-    const empty = new Map<string, number>();
-    expect(idleInstance(empty)).toBe("primary");
-    expect(idleInstance(new Map([["primary", 1]]))).toBe("overflow-1");
-    expect(
-      idleInstance(
-        new Map([
-          ["primary", 2],
-          ["overflow-1", 1],
-        ]),
-      ),
-    ).toBe("overflow-2");
+  test("moves to the next instance when one answers busy", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? "busy" : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
   });
 
-  test("never overflows past the capped instances", () => {
-    const busy = new Map(EMBEDDER_INSTANCES.map((name) => [name, 4]));
-    const chosen = idleInstance(busy);
-    expect(EMBEDDER_INSTANCES as readonly string[]).toContain(chosen);
+  test("retries a 502 once and no further", async () => {
+    const embedder = fakeEmbedder({ answer: 502 });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.status).toBe(502);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
   });
 
-  test("spreads concurrent queries over the pool and returns to the shared instance", async () => {
+  test("retries a connection failure on the next instance", async () => {
+    const embedder = fakeEmbedder({ unreachable: ["primary"] });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual(["overflow-1"]);
+  });
+
+  test("answers a 4xx without retrying", async () => {
+    const embedder = fakeEmbedder({ answer: 400 });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.status).toBe(400);
+    expect(embedder.calls.map((call) => call.instance)).toEqual(["primary"]);
+  });
+
+  test("waits on the shared instance once every instance is busy", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance, seen) =>
+        instance === "primary" && seen > 2 ? 200 : "busy",
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+      "overflow-2",
+      "primary",
+      "primary",
+      "primary",
+    ]);
+  });
+
+  test("spreads concurrent queries over the pool", async () => {
     const embedder = fakeEmbedder({ hold: true });
     const config: Embeddings = {
       kind: "container",
@@ -116,16 +150,18 @@ describe("container instances", () => {
       embedQuery(config, "a"),
       embedQuery(config, "b"),
       embedQuery(config, "c"),
-      embedQuery(config, "d"),
     ];
-    const instances = embedder.calls.map((call) => call.instance);
-    expect(instances).toEqual([...EMBEDDER_INSTANCES, "primary"]);
+    await Bun.sleep(0);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "primary",
+      "primary",
+      "overflow-1",
+      "overflow-1",
+      "overflow-2",
+    ]);
     embedder.release();
     await Promise.all(pending);
-    const reused = embedQuery(config, "e");
-    embedder.release();
-    await reused;
-    expect(embedder.calls.at(-1)?.instance).toBe("primary");
   });
 });
 
@@ -146,33 +182,13 @@ describe("prewarm", () => {
     ]);
   });
 
-  test("wakes only the shared instance and leaves it free for searches", async () => {
-    const embedder = fakeEmbedder({ hold: true });
-    const env = fakeEnv({ EMBEDDER: embedder.namespace });
-    const config: Embeddings = {
-      kind: "container",
-      namespace: embedder.namespace,
-    };
-    const searching = embedQuery(config, "a");
-    const warming = prewarmEmbeddings(env, "203.0.113.7");
-    await Bun.sleep(0);
-    const after = embedQuery(config, "b");
-    expect(embedder.calls.map((call) => call.instance)).toEqual([
-      "primary",
-      "primary",
-      "overflow-1",
-    ]);
-    embedder.release();
-    await Promise.all([searching, warming, after]);
-    const warmingAgain = prewarmEmbeddings(env, "203.0.113.7");
-    await Bun.sleep(0);
-    const next = embedQuery(config, "c");
-    embedder.release();
-    await Promise.all([warmingAgain, next]);
-    expect(embedder.calls.slice(-2).map((call) => call.instance)).toEqual([
-      "primary",
-      "primary",
-    ]);
+  test("counts a busy shared instance as warm", async () => {
+    const embedder = fakeEmbedder({ answer: "busy" });
+    const warm = await prewarmEmbeddings(
+      fakeEnv({ EMBEDDER: embedder.namespace }),
+      "203.0.113.7",
+    );
+    expect(warm).toBe("warm");
   });
 
   test("does nothing when a remote URL serves the embeddings", async () => {
