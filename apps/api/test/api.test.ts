@@ -142,7 +142,7 @@ describe("search parameters", () => {
     expect(response.status).toBe(400);
   });
 
-  test("answers 503 while the embeddings secrets are missing", async () => {
+  test("answers 503 without naming any secret", async () => {
     const response = await createApp().request(
       "/api/search?q=fire",
       {},
@@ -150,8 +150,7 @@ describe("search parameters", () => {
     );
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error:
-        "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set",
+      error: "Search is temporarily unavailable",
     });
   });
 

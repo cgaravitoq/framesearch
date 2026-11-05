@@ -17,6 +17,8 @@ const FRAME_SUFFIX = ".jpg";
 const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
 const SEARCH_CACHE_SECONDS = 3600;
+const UNAVAILABLE = "Search is temporarily unavailable";
+const SERVER_ERROR = "Something went wrong";
 const MISSING_EMBEDDINGS =
   "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set";
 
@@ -62,7 +64,10 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
     const embeddings = embeddingsConfig(c.env);
-    if (embeddings === null) return failure(MISSING_EMBEDDINGS, 503);
+    if (embeddings === null) {
+      console.error(MISSING_EMBEDDINGS);
+      return failure(UNAVAILABLE, 503);
+    }
     const published = await publishedFilms(c.env);
     const cache = caches.default;
     const key = cacheKey(c.req.url, published.signature);
@@ -76,7 +81,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
         query: query.value,
       });
     } catch (error) {
-      return failure(message(error), 502);
+      console.error("search failed", error);
+      return failure(UNAVAILABLE, 503);
     }
     const response = json(reply, 200, {
       "cache-control": `public, max-age=${SEARCH_CACHE_SECONDS}`,
@@ -100,7 +106,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
         shotId: id.value,
       });
     } catch (error) {
-      return failure(message(error), 502);
+      console.error("similar failed", error);
+      return failure(SERVER_ERROR, 502);
     }
   });
 
@@ -115,7 +122,10 @@ export function createApp(): Hono<{ Bindings: Env }> {
   });
 
   app.notFound((c) => failure(`no route for ${c.req.path}`, 404));
-  app.onError((error) => failure(message(error), 500));
+  app.onError((error) => {
+    console.error("unhandled error", error);
+    return failure(SERVER_ERROR, 500);
+  });
   return app;
 }
 
@@ -140,10 +150,6 @@ function failure(
   headers: Record<string, string> = {},
 ): Response {
   return json({ error }, status, headers);
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function rateLimited(
