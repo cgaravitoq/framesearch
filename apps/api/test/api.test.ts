@@ -509,6 +509,23 @@ describe("log routes", () => {
     expect(response.status).toBe(413);
   });
 
+  test("refuse a declared content-length over the limit before reading the body", async () => {
+    const response = await createApp().request(
+      "/api/log/search",
+      {
+        body: '{"query":"fire"}',
+        headers: {
+          "cf-connecting-ip": IP,
+          "content-length": "8193",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      },
+      fakeEnv(),
+    );
+    expect(response.status).toBe(413);
+  });
+
   test("stop reading a chunked body once it passes the size limit", async () => {
     const pulls = { count: 0 };
     const response = await createApp().request(
