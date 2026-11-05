@@ -117,9 +117,17 @@ async function storedRank(
   return rankOf(row?.shot_ids ?? null, shotId);
 }
 
-type ReadResult =
-  | { ok: true; body: Record<string, unknown> }
-  | { ok: false; status: number; error: string };
+interface Failure {
+  ok: false;
+  status: number;
+  error: string;
+}
+
+type ReadResult = { ok: true; body: Record<string, unknown> } | Failure;
+
+type TextResult = { ok: true; text: string } | Failure;
+
+const UTF8 = new TextDecoder();
 
 async function readJson(request: Request): Promise<ReadResult> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -130,25 +138,48 @@ async function readJson(request: Request): Promise<ReadResult> {
       error: "the log routes take application/json only",
     };
   }
-  const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return tooLarge();
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    return tooLarge();
-  }
-  let body: unknown;
+  const body = await readText(request);
+  if (!body.ok) return body;
+  let parsed: unknown;
   try {
-    body = JSON.parse(text);
+    parsed = JSON.parse(body.text);
   } catch {
     return { ok: false, status: 400, error: "the body must be a JSON object" };
   }
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return { ok: false, status: 400, error: "the body must be a JSON object" };
   }
-  return { ok: true, body: body as Record<string, unknown> };
+  return { ok: true, body: parsed as Record<string, unknown> };
 }
 
-function tooLarge(): ReadResult {
+async function readText(request: Request): Promise<TextResult> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > MAX_BODY_BYTES) return tooLarge();
+  const stream = request.body;
+  if (stream === null) return { ok: true, text: "" };
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return { ok: true, text: UTF8.decode(bytes) };
+}
+
+function tooLarge(): Failure {
   return {
     ok: false,
     status: 413,

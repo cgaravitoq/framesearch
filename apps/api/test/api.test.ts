@@ -231,6 +231,24 @@ describe("rate limit", () => {
 });
 
 const IP = "203.0.113.9";
+const CHUNK_BYTES = 4096;
+const MAX_CHUNKS = 4;
+
+function chunkedLogRequest(pulls: { count: number }): Request {
+  const filler = "a".repeat(CHUNK_BYTES - 12);
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls.count += 1;
+      controller.enqueue(new TextEncoder().encode(`{"query":"${filler}"}`));
+    },
+  });
+  const init = {
+    body,
+    headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+    method: "POST",
+  } as RequestInit;
+  return new Request("http://localhost/api/log/search", init);
+}
 
 function logRequest(
   path: string,
@@ -271,6 +289,17 @@ describe("log routes", () => {
       JSON.stringify({ query: "fire", shotIds: Array(5000).fill(1) }),
     );
     expect(response.status).toBe(413);
+  });
+
+  test("stop reading a chunked body once it passes the size limit", async () => {
+    const pulls = { count: 0 };
+    const response = await createApp().request(
+      chunkedLogRequest(pulls),
+      undefined,
+      fakeEnv(),
+    );
+    expect(response.status).toBe(413);
+    expect(pulls.count).toBeLessThan(MAX_CHUNKS);
   });
 
   test("record the query, film and shots without the address", async () => {
