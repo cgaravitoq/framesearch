@@ -223,6 +223,30 @@ describe("search cache", () => {
       embeddings.restore();
     }
   });
+
+  test("reloads a film republished with the same shot ids", async () => {
+    const fixture = searchFixture("white-zombie", 7);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=mill&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.headers.get("x-cache")).toBe("miss");
+      fixture.republishVectors();
+      const second = await createApp().request(
+        "/api/search?q=mill&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("miss");
+      expect(fixture.vectorsReads()).toBe(2);
+    } finally {
+      embeddings.restore();
+    }
+  });
 });
 
 describe("similar", () => {
@@ -417,6 +441,7 @@ describe("log routes", () => {
 
 interface SearchFixture {
   env: Env;
+  republishVectors: () => void;
   setVersion: (version: number) => void;
   vectorsReads: () => number;
 }
@@ -454,16 +479,15 @@ function searchFixture(film: string, version: number): SearchFixture {
       return shots;
     },
   });
-  const frames = fakeR2({
-    [vectorsKey(film)]: encodeVectors({
-      captions: [],
-      dim: 2,
-      frames: [
-        { shotId: 1, values: Int8Array.from([127, 0]) },
-        { shotId: 2, values: Int8Array.from([0, 127]) },
-      ],
-    }),
+  const vectors = encodeVectors({
+    captions: [],
+    dim: 2,
+    frames: [
+      { shotId: 1, values: Int8Array.from([127, 0]) },
+      { shotId: 2, values: Int8Array.from([0, 127]) },
+    ],
   });
+  const frames = fakeR2({ [vectorsKey(film)]: vectors });
   return {
     env: fakeEnv({
       DB: db,
@@ -472,6 +496,7 @@ function searchFixture(film: string, version: number): SearchFixture {
       EMBED_URL: "http://embed.test/v1/embeddings",
       FRAMES: frames.bucket,
     }),
+    republishVectors: () => frames.put(vectorsKey(film), vectors),
     setVersion: (next) => {
       current = next;
     },

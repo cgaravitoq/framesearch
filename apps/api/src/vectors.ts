@@ -9,6 +9,7 @@ import type { Env } from "./env.ts";
 export interface PublishedFilm {
   slug: string;
   version: number;
+  uploaded: number;
 }
 
 export interface Published {
@@ -26,17 +27,29 @@ const PUBLISHED_QUERY =
   "SELECT f.slug AS slug, COALESCE(MAX(s.id), 0) AS version FROM films f LEFT JOIN shots s ON s.film = f.slug GROUP BY f.slug ORDER BY f.slug";
 
 export async function publishedFilms(env: Env): Promise<Published> {
-  const { results } =
-    await env.DB.prepare(PUBLISHED_QUERY).all<PublishedFilm>();
-  const films = results.map((row) => ({
-    slug: row.slug,
-    version: row.version,
-  }));
+  const { results } = await env.DB.prepare(PUBLISHED_QUERY).all<{
+    slug: string;
+    version: number;
+  }>();
+  const films = await Promise.all(
+    results.map(async (row) => ({
+      slug: row.slug,
+      uploaded: await vectorsUploaded(env, row.slug),
+      version: row.version,
+    })),
+  );
   return { films, signature: signatureOf(films) };
 }
 
+async function vectorsUploaded(env: Env, slug: string): Promise<number> {
+  const head = await env.FRAMES.head(vectorsKey(slug));
+  return head?.uploaded.getTime() ?? 0;
+}
+
 function signatureOf(films: readonly PublishedFilm[]): string {
-  return films.map((film) => `${film.slug}@${film.version}`).join(",");
+  return films
+    .map((film) => `${film.slug}@${film.version}.${film.uploaded}`)
+    .join(",");
 }
 
 let loaded: LoadedVectors | null = null;
