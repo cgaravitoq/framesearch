@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { encodeVectors, vectorsKey } from "@framesearch/schema";
+import { describe, expect, spyOn, test } from "bun:test";
+import {
+  encodeVectors,
+  type SearchReply,
+  vectorsKey,
+} from "@framesearch/schema";
 import { createApp } from "../src/app.ts";
+import type { Env } from "../src/env.ts";
 import { fakeDb, fakeEnv, fakeR2, fakeRateLimit } from "./support.ts";
 
 describe("films", () => {
@@ -166,6 +171,60 @@ describe("search parameters", () => {
   });
 });
 
+describe("search cache", () => {
+  test("serves a repeated query from memory, whatever its case and spacing", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 1);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=fire&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.status).toBe(200);
+      expect(first.headers.get("x-cache")).toBe("miss");
+      const second = await createApp().request(
+        "/api/search?q=%20%20FIRE%20&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("hit");
+      const reply = (await second.json()) as SearchReply;
+      expect(reply.query).toBe("FIRE");
+      expect(reply.results.map((hit) => hit.shotId)).toEqual([1]);
+      expect(embeddings.calls()).toBe(1);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("drops the cached results and reloads the vectors after a republish", async () => {
+    const fixture = searchFixture("dawn-of-the-dead", 5);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=graveyard&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.headers.get("x-cache")).toBe("miss");
+      fixture.setVersion(6);
+      const second = await createApp().request(
+        "/api/search?q=graveyard&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("miss");
+      expect(embeddings.calls()).toBe(2);
+      expect(fixture.vectorsReads()).toBe(2);
+    } finally {
+      embeddings.restore();
+    }
+  });
+});
+
 describe("similar", () => {
   test("never answers with another frame of the shot it was asked about", async () => {
     const film = "night-of-the-living-dead";
@@ -183,7 +242,7 @@ describe("similar", () => {
     const shots = [shot(1, 0, 4), shot(2, 0, 4), shot(3, 4, 9)];
     const { db } = fakeDb({
       rows: (sql) => {
-        if (sql.includes("SELECT slug FROM films")) return [{ slug: film }];
+        if (sql.includes("MAX(s.id)")) return [{ slug: film, version: 3 }];
         if (sql.includes("sibling")) return [{ id: 1 }, { id: 2 }];
         return shots;
       },
@@ -355,3 +414,80 @@ describe("log routes", () => {
     expect(response.status).toBe(400);
   });
 });
+
+interface SearchFixture {
+  env: Env;
+  setVersion: (version: number) => void;
+  vectorsReads: () => number;
+}
+
+function searchFixture(film: string, version: number): SearchFixture {
+  let current = version;
+  const shots = [
+    {
+      caption: null,
+      film,
+      id: 1,
+      idx: 1,
+      shotEnd: 4,
+      shotStart: 0,
+      tags: "[]",
+      time: 0,
+      title: "Night of the Living Dead",
+    },
+    {
+      caption: null,
+      film,
+      id: 2,
+      idx: 2,
+      shotEnd: 9,
+      shotStart: 4,
+      tags: "[]",
+      time: 4,
+      title: "Night of the Living Dead",
+    },
+  ];
+  const { db } = fakeDb({
+    rows: (sql) => {
+      if (sql.includes("MAX(s.id)")) return [{ slug: film, version: current }];
+      if (sql.includes("bm25")) return [];
+      return shots;
+    },
+  });
+  const frames = fakeR2({
+    [vectorsKey(film)]: encodeVectors({
+      captions: [],
+      dim: 2,
+      frames: [
+        { shotId: 1, values: Int8Array.from([127, 0]) },
+        { shotId: 2, values: Int8Array.from([0, 127]) },
+      ],
+    }),
+  });
+  return {
+    env: fakeEnv({
+      DB: db,
+      EMBED_API_KEY: "key",
+      EMBED_MODEL: "model",
+      EMBED_URL: "http://embed.test/v1/embeddings",
+      FRAMES: frames.bucket,
+    }),
+    setVersion: (next) => {
+      current = next;
+    },
+    vectorsReads: () =>
+      frames.keys.filter((key) => key === vectorsKey(film)).length,
+  };
+}
+
+function stubEmbeddings(): { calls: () => number; restore: () => void } {
+  let calls = 0;
+  const answer = (async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ data: [{ embedding: [1, 0] }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const spy = spyOn(globalThis, "fetch").mockImplementation(answer);
+  return { calls: () => calls, restore: () => spy.mockRestore() };
+}

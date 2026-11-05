@@ -6,8 +6,13 @@ import {
 } from "@framesearch/schema";
 import type { Env } from "./env.ts";
 
+export interface PublishedFilm {
+  slug: string;
+  version: number;
+}
+
 export interface Published {
-  slugs: readonly string[];
+  films: readonly PublishedFilm[];
   signature: string;
 }
 
@@ -17,12 +22,21 @@ export interface LoadedVectors {
   frames: Map<number, { film: string; values: Int8Array }>;
 }
 
+const PUBLISHED_QUERY =
+  "SELECT f.slug AS slug, COALESCE(MAX(s.id), 0) AS version FROM films f LEFT JOIN shots s ON s.film = f.slug GROUP BY f.slug ORDER BY f.slug";
+
 export async function publishedFilms(env: Env): Promise<Published> {
-  const { results } = await env.DB.prepare(
-    "SELECT slug FROM films ORDER BY slug",
-  ).all<{ slug: string }>();
-  const slugs = results.map((row) => row.slug);
-  return { slugs, signature: slugs.join(",") };
+  const { results } =
+    await env.DB.prepare(PUBLISHED_QUERY).all<PublishedFilm>();
+  const films = results.map((row) => ({
+    slug: row.slug,
+    version: row.version,
+  }));
+  return { films, signature: signatureOf(films) };
+}
+
+function signatureOf(films: readonly PublishedFilm[]): string {
+  return films.map((film) => `${film.slug}@${film.version}`).join(",");
 }
 
 let loaded: LoadedVectors | null = null;
@@ -49,27 +63,19 @@ export async function loadVectors(
   }
 }
 
-export function hash(text: string): string {
-  let value = 0x811c9dc5;
-  for (let at = 0; at < text.length; at += 1) {
-    value = Math.imul(value ^ text.charCodeAt(at), 0x01000193);
-  }
-  return (value >>> 0).toString(36);
-}
-
 async function readFilms(
   env: Env,
   published: Published,
 ): Promise<LoadedVectors> {
   const sets: FilmVectorSet[] = [];
   const frames = new Map<number, { film: string; values: Int8Array }>();
-  for (const film of published.slugs) {
-    const object = await env.FRAMES.get(vectorsKey(film));
+  for (const film of published.films) {
+    const object = await env.FRAMES.get(vectorsKey(film.slug));
     if (object === null) continue;
     const vectors = decodeVectors(await object.arrayBuffer());
-    sets.push({ film, vectors });
+    sets.push({ film: film.slug, vectors });
     for (const record of vectors.frames) {
-      frames.set(record.shotId, { film, values: record.values });
+      frames.set(record.shotId, { film: film.slug, values: record.values });
     }
   }
   return {
