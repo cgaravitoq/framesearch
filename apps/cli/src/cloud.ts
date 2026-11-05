@@ -291,15 +291,26 @@ async function apiIdentity(): Promise<ApiIdentity> {
 }
 
 async function authToken(): Promise<string> {
-  const reply = JSON.parse(await wrangler(["auth", "token", "--json"])) as {
-    token?: unknown;
-  };
-  if (typeof reply.token !== "string" || reply.token === "") {
+  const token = tokenField(await wrangler(["auth", "token", "--json"]));
+  if (token === "") {
     throw new Error(
       "wrangler printed no API token; log in with `wrangler login` or set CLOUDFLARE_API_TOKEN",
     );
   }
-  return reply.token;
+  return token;
+}
+
+function tokenField(stdout: string): string {
+  let reply: unknown;
+  try {
+    reply = JSON.parse(stdout);
+  } catch {
+    return "";
+  }
+  if (typeof reply !== "object" || reply === null || !("token" in reply)) {
+    return "";
+  }
+  return typeof reply.token === "string" ? reply.token : "";
 }
 
 async function onlyAccount(): Promise<string> {
@@ -323,9 +334,7 @@ async function listObjects(url: URL, token: string): Promise<ObjectsPage> {
     headers: { authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
-    throw new Error(
-      `listing ${url.pathname} failed (${response.status}): ${(await response.text()).slice(-OUTPUT_TAIL)}`,
-    );
+    throw new Error(`listing ${url.pathname} failed (${response.status})`);
   }
   return (await response.json()) as ObjectsPage;
 }

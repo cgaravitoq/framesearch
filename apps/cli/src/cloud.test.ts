@@ -3,6 +3,7 @@ import { vectorsKey } from "@framesearch/schema";
 import { vectorsFiles, wrangler } from "./cloud.ts";
 
 const ACCOUNT = "account-1";
+const SECRET = "cfut_plantedSecretToken0123456789";
 const FIRST = vectorsKey("night", "0f0f0f0f-1111-4222-8333-444455556666");
 const SECOND = vectorsKey("night", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
 const LONGER = vectorsKey("night-2", "0f0f0f0f-1111-4222-8333-444455556666");
@@ -55,15 +56,39 @@ describe("vectors files", () => {
   test("answers a refused page without its body reaching the caller", async () => {
     const spy = spyOn(globalThis, "fetch").mockImplementation(
       (async () =>
-        new Response("invalid token", {
+        new Response(`invalid token ${SECRET}`, {
           status: 403,
         })) as unknown as typeof fetch,
     );
     const restore = withCredentials();
     try {
-      await expect(vectorsFiles("night")).rejects.toThrow(/failed \(403\)/);
+      const error = await vectorsFiles("night").catch((caught: unknown) =>
+        String(caught),
+      );
+      expect(error).toMatch(/failed \(403\)/);
+      expect(error).not.toContain(SECRET);
     } finally {
       spy.mockRestore();
+      restore();
+    }
+  });
+
+  test("answers an unreadable wrangler token without its output reaching the caller", async () => {
+    const spawn = spyOn(Bun, "spawn").mockImplementation((() => ({
+      exited: Promise.resolve(0),
+      stderr: new Response("").body,
+      stdout: new Response(SECRET).body,
+    })) as unknown as typeof Bun.spawn);
+    const restore = withCredentials();
+    delete process.env.CLOUDFLARE_API_TOKEN;
+    try {
+      const error = await vectorsFiles("night").catch((caught: unknown) =>
+        String(caught),
+      );
+      expect(error).toContain("wrangler printed no API token");
+      expect(error).not.toContain(SECRET);
+    } finally {
+      spawn.mockRestore();
       restore();
     }
   });
