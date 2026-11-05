@@ -11,7 +11,7 @@ export const BUSY_HEADER = "x-embedder-busy";
 export const BUSY_STATUS = 503;
 
 const EMBEDDINGS_URL = "http://embedder/v1/embeddings";
-const RETRY_STATUS = 502;
+const RETRY_STATUSES: ReadonlySet<number> = new Set([500, 502]);
 const WAIT_BUDGET_MS = 15_000;
 const WAIT_INTERVAL_MS = 100;
 
@@ -49,7 +49,7 @@ export async function postEmbeddings(
       continue;
     }
     if (isBusy(reply)) continue;
-    if (reply.status === RETRY_STATUS && retries > 0 && index < last) {
+    if (RETRY_STATUSES.has(reply.status) && retries > 0 && index < last) {
       retries -= 1;
       continue;
     }

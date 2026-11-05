@@ -118,6 +118,18 @@ describe("container instances", () => {
     ]);
   });
 
+  test("retries the 500 a container restart answers with on the next instance", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? 500 : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
+  });
+
   test("retries a connection failure on the next instance", async () => {
     const embedder = fakeEmbedder({ unreachable: ["primary"] });
     const reply = await postEmbeddings(embedder.namespace, ["a"]);
