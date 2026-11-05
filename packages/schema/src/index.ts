@@ -6,6 +6,7 @@ export type {
   ErrorReply,
   Film,
   FilmsReply,
+  FlagsReply,
   Hit,
   RankedShot,
   RankOptions,

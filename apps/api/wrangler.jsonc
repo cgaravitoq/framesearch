@@ -1,10 +1,13 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "framesearch-staging",
+  "name": "framesearch",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-30",
   "workers_dev": true,
   "preview_urls": false,
+  "vars": {
+    "SEARCH_LOG": true
+  },
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
@@ -35,14 +38,14 @@
   "r2_buckets": [
     {
       "binding": "FRAMES",
-      "bucket_name": "framesearch-staging"
+      "bucket_name": "framesearch"
     }
   ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "framesearch-staging",
-      "database_id": "9e1efc80-9307-4cf4-9a82-faf8398787ad",
+      "database_name": "framesearch",
+      "database_id": "3b9b303a-b586-4f8e-9158-7950c34b8802",
       "migrations_dir": "migrations"
     }
   ],

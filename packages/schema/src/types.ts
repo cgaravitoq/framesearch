@@ -37,6 +37,8 @@ export interface FilmsReply {
   films: Film[];
 }
 
+export type FlagsReply = Readonly<Record<string, boolean>>;
+
 export interface SimilarReply {
   shotId: number;
   results: Hit[];

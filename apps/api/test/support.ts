@@ -149,6 +149,7 @@ export function fakeEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: fakeDb().db,
     FRAMES: fakeR2().bucket,
+    SEARCH_LOG: true,
     SEARCH_RATE_LIMIT: fakeRateLimit(true),
     ...overrides,
   };

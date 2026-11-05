@@ -8,6 +8,7 @@ import type {
   ErrorReply,
   Film,
   FilmsReply,
+  FlagsReply,
   Hit,
   SearchReply,
   SimilarReply,
@@ -17,6 +18,7 @@ import { type Context, Hono } from "hono";
 import { cacheKey, readCache, writeCache } from "./cache.ts";
 import { embeddingsConfig } from "./embeddings.ts";
 import type { Env } from "./env.ts";
+import { readFlags } from "./flags.ts";
 import { logClick, logSearch } from "./log.ts";
 import { runSearch, runSimilar } from "./search.ts";
 import { publishedFilms } from "./vectors.ts";
@@ -32,6 +34,11 @@ const MISSING_EMBEDDINGS =
 
 export function createApp(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  app.get("/api/flags", (c) => {
+    const reply: FlagsReply = readFlags(c.env);
+    return json(reply);
+  });
 
   app.get("/api/films", async (c) => {
     const { results } = await c.env.DB.prepare(
@@ -119,11 +126,13 @@ export function createApp(): Hono<{ Bindings: Env }> {
   });
 
   app.post("/api/log/search", async (c) => {
+    if (!readFlags(c.env).searchLog) return loggingOff();
     const result = await logSearch(c.env, c.req.raw);
     return result.ok ? json(result.body) : failure(result.error, result.status);
   });
 
   app.post("/api/log/click", async (c) => {
+    if (!readFlags(c.env).searchLog) return loggingOff();
     const result = await logClick(c.env, c.req.raw);
     return result.ok ? json(result.body) : failure(result.error, result.status);
   });
@@ -158,6 +167,10 @@ function failure(
 ): Response {
   const reply: ErrorReply = { error };
   return json(reply, status, headers);
+}
+
+function loggingOff(): Response {
+  return failure("search logging is off", 404);
 }
 
 async function rateLimited(

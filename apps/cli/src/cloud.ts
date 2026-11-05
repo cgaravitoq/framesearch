@@ -26,11 +26,11 @@ interface D1Reply {
 }
 
 export function bucketName(): string {
-  return process.env.FRAMESEARCH_R2_BUCKET ?? "framesearch-staging";
+  return process.env.FRAMESEARCH_R2_BUCKET ?? "framesearch";
 }
 
 export function databaseName(): string {
-  return process.env.FRAMESEARCH_D1_DATABASE ?? "framesearch-staging";
+  return process.env.FRAMESEARCH_D1_DATABASE ?? "framesearch";
 }
 
 export async function putObjects(
