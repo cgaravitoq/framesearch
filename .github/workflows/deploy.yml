@@ -1,0 +1,84 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun run test
+
+      - name: Build the web bundle
+        run: bun run --cwd apps/web build
+
+      - name: Apply migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run --cwd apps/api migrate
+
+      - name: Deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bun run --cwd apps/api deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          url=$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n 1)
+          if [ -z "$url" ]; then
+            echo "the deploy printed no workers.dev URL"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Warm the embedder
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: curl --silent --show-error --max-time 180 "$BASE_URL/api/prewarm" > /dev/null || true
+
+      - name: Eval the live search
+        id: eval
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          queries=$(jq 'length' "$GITHUB_WORKSPACE/evals/queries.json")
+          min_hit_at5=$(( (queries * 9 + 9) / 10 ))
+          bun run framesearch eval --base-url "$BASE_URL" \
+            "$GITHUB_WORKSPACE/evals/queries.json" \
+            --min-hit-at5 "$min_hit_at5" --min-mrr 0.75
+
+      - name: Roll back
+        if: failure() && steps.eval.outcome == 'failure'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run --cwd apps/api rollback

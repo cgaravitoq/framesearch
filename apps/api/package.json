@@ -8,6 +8,8 @@
     "test": "bun test",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply framesearch --remote",
+    "rollback": "wrangler rollback --yes",
     "build": "wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": {
