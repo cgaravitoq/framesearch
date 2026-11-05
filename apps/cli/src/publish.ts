@@ -71,6 +71,7 @@ export async function publishFilm(
       (idx) => !current.has(idx),
     );
     const live = await cloud.publishedVectors(slug);
+    const stamped = await cloud.vectorsFiles(slug);
     const key = vectorsKey(slug, crypto.randomUUID());
     await cloud.putObjects(
       frames.map((frame) => ({ ...frame, contentType: "image/jpeg" })),
@@ -80,8 +81,18 @@ export async function publishFilm(
       { key, file: localVectors, contentType: "application/octet-stream" },
     ]);
     await cloud.executeSql(publishedVersionSql(slug, Date.now(), key));
-    const retired = live.prior;
-    if (retired !== null) await cloud.deleteObject(retired);
+    const kept = new Set([key, live.current]);
+    const retired = [
+      ...new Set(
+        [live.prior, ...stamped].filter(
+          (candidate): candidate is string =>
+            candidate !== null && !kept.has(candidate),
+        ),
+      ),
+    ];
+    await mapBounded(retired, UPLOAD_CONCURRENCY, (retiredKey) =>
+      cloud.deleteObject(retiredKey),
+    );
     try {
       await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
         cloud.deleteObject(frameKey(slug, idx)),

@@ -5,6 +5,9 @@ import { publishedFramesSql, publishedVectorsSql } from "./sql.ts";
 
 const WRANGLER = ["npx", "-y", "wrangler@4"];
 const OUTPUT_TAIL = 400;
+const API = "https://api.cloudflare.com/client/v4";
+const OBJECTS_PAGE = 1000;
+const STAMP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const UPLOAD_CONCURRENCY = 8;
 
@@ -20,6 +23,7 @@ export interface Cloud {
   executeSql(sql: string): Promise<void>;
   publishedFrames(film: string): Promise<number[]>;
   publishedVectors(film: string): Promise<PublishedVectors>;
+  vectorsFiles(film: string): Promise<string[]>;
 }
 
 export interface PublishedVectors {
@@ -99,6 +103,36 @@ export async function deleteObject(key: string): Promise<void> {
   ]);
 }
 
+export async function vectorsFiles(film: string): Promise<string[]> {
+  const identity = await apiIdentity();
+  const prefix = `vectors/${film}-`;
+  const keys: string[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const url = new URL(
+      `${API}/accounts/${identity.account}/r2/buckets/${bucketName()}/objects`,
+    );
+    url.searchParams.set("per_page", String(OBJECTS_PAGE));
+    url.searchParams.set("prefix", prefix);
+    if (cursor !== null) url.searchParams.set("cursor", cursor);
+    const page = await listObjects(url, identity.token);
+    for (const object of page.result) {
+      if (stampedFilm(object.key, prefix)) keys.push(object.key);
+    }
+    const next =
+      page.result_info?.is_truncated === true
+        ? page.result_info.cursor
+        : undefined;
+    if (next === undefined || next === "") return keys;
+    cursor = next;
+  }
+}
+
+function stampedFilm(key: string, prefix: string): boolean {
+  if (!key.startsWith(prefix) || !key.endsWith(".bin")) return false;
+  return STAMP.test(key.slice(prefix.length, -4));
+}
+
 export async function executeSql(sql: string): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "framesearch-wrangler-"));
   try {
@@ -150,11 +184,12 @@ export async function publishedVectors(
 }
 
 export const wranglerCloud: Cloud = {
-  putObjects,
   deleteObject,
   executeSql,
   publishedFrames,
   publishedVectors,
+  putObjects,
+  vectorsFiles,
 };
 
 export async function mapBounded<T>(
@@ -196,4 +231,65 @@ export async function wrangler(args: readonly string[]): Promise<string> {
     );
   }
   return stdout;
+}
+
+interface ApiIdentity {
+  account: string;
+  token: string;
+}
+
+interface ObjectsPage {
+  result: { key: string }[];
+  result_info?:
+    | { cursor?: string | undefined; is_truncated?: boolean | undefined }
+    | undefined;
+}
+
+async function apiIdentity(): Promise<ApiIdentity> {
+  const configured = process.env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
+  const token = process.env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
+  return {
+    account: configured === "" ? await onlyAccount() : configured,
+    token: token === "" ? await authToken() : token,
+  };
+}
+
+async function authToken(): Promise<string> {
+  const reply = JSON.parse(await wrangler(["auth", "token", "--json"])) as {
+    token?: unknown;
+  };
+  if (typeof reply.token !== "string" || reply.token === "") {
+    throw new Error(
+      "wrangler printed no API token; log in with `wrangler login` or set CLOUDFLARE_API_TOKEN",
+    );
+  }
+  return reply.token;
+}
+
+async function onlyAccount(): Promise<string> {
+  const reply = JSON.parse(await wrangler(["whoami", "--json"])) as {
+    accounts?: { id?: unknown }[] | undefined;
+  };
+  const ids = (reply.accounts ?? [])
+    .map((account) => account.id)
+    .filter((id): id is string => typeof id === "string");
+  const [id] = ids;
+  if (ids.length !== 1 || id === undefined) {
+    throw new Error(
+      `wrangler is logged in to ${ids.length} accounts; set CLOUDFLARE_ACCOUNT_ID`,
+    );
+  }
+  return id;
+}
+
+async function listObjects(url: URL, token: string): Promise<ObjectsPage> {
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `listing ${url.pathname} failed (${response.status}): ${(await response.text()).slice(-OUTPUT_TAIL)}`,
+    );
+  }
+  return (await response.json()) as ObjectsPage;
 }

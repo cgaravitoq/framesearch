@@ -32,6 +32,7 @@ export async function unpublishFilm(
   const dir = options.dataDir ?? dataDir();
   const cloud = options.cloud ?? wranglerCloud;
   const live = await cloud.publishedVectors(slug);
+  const stamped = await cloud.vectorsFiles(slug);
   const frames = [
     ...new Set([
       ...localFrames(dir, slug),
@@ -40,7 +41,7 @@ export async function unpublishFilm(
   ];
   const keys = [
     ...new Set(
-      [vectorsKey(slug), live.current, live.prior].filter(
+      [vectorsKey(slug), live.current, live.prior, ...stamped].filter(
         (key): key is string => key !== null,
       ),
     ),
