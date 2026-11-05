@@ -129,7 +129,7 @@ async function main(): Promise<void> {
       [
         `${report.film} removed from ${bucketName()}/${databaseName()}`,
         `  frames      ${report.frames} objects under frames/${report.film}/`,
-        `  vectors     ${report.vectorsKey}`,
+        `  vectors     ${report.vectorsKeys.join(", ")}`,
         `  wall time   ${report.seconds.toFixed(1)}s`,
       ].join("\n"),
     );

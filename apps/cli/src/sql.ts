@@ -26,9 +26,17 @@ export function unpublishSql(film: string): string {
   return render([...DDL, publishedDelete(film), ...removeStatements(film)]);
 }
 
-export function publishedVersionSql(film: string, at: number): string {
+export function publishedVersionSql(
+  film: string,
+  at: number,
+  key: string,
+): string {
   const version = `MAX(${number(at)}, COALESCE((SELECT MAX(version) FROM published), 0) + 1)`;
-  return `INSERT INTO published (film, version) VALUES (${text(film)}, ${version}) ON CONFLICT (film) DO UPDATE SET version = excluded.version`;
+  return `INSERT INTO published (film, version, vectors_key, prior_vectors_key) VALUES (${text(film)}, ${version}, ${text(key)}, NULL) ON CONFLICT (film) DO UPDATE SET version = excluded.version, vectors_key = excluded.vectors_key, prior_vectors_key = published.vectors_key`;
+}
+
+export function publishedVectorsSql(film: string): string {
+  return `SELECT vectors_key AS current, prior_vectors_key AS prior FROM published WHERE film = ${text(film)}`;
 }
 
 export function publishedFramesSql(film: string): string {
