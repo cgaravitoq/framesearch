@@ -3,12 +3,18 @@ import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
 import { EMBEDDER_INSTANCES, postEmbeddings } from "../src/embedder-routing.ts";
 import {
+  EmbedderBusy,
   type Embeddings,
   embeddingsConfig,
   embedQuery,
   prewarmEmbeddings,
 } from "../src/embeddings.ts";
-import { fakeEmbedder, fakeEnv, fakeRateLimit } from "./support.ts";
+import {
+  fakeEmbedder,
+  fakeEnv,
+  fakeRateLimit,
+  withFakeTime,
+} from "./support.ts";
 
 describe("embeddings config", () => {
   test("prefers EMBED_URL so a local llama.cpp still serves without the container", () => {
@@ -67,12 +73,12 @@ describe("container embeddings", () => {
   });
 
   test("reports the status when the container cannot embed", async () => {
-    const embedder = fakeEmbedder({ answer: 503 });
+    const embedder = fakeEmbedder({ answer: 400 });
     const config: Embeddings = {
       kind: "container",
       namespace: embedder.namespace,
     };
-    expect(embedQuery(config, "fire")).rejects.toThrow("answered 503");
+    expect(embedQuery(config, "fire")).rejects.toThrow("answered 400");
     expect(embedder.calls).toHaveLength(1);
   });
 
@@ -84,6 +90,18 @@ describe("container embeddings", () => {
     };
     expect(embedQuery(config, "fire")).rejects.toThrow("returned no vector");
   });
+
+  test("reports busy once every instance stayed busy past the wait budget", async () => {
+    const embedder = fakeEmbedder({ answer: "busy" });
+    const config: Embeddings = {
+      kind: "container",
+      namespace: embedder.namespace,
+    };
+    await expect(
+      withFakeTime(() => embedQuery(config, "fire")),
+    ).rejects.toThrow(EmbedderBusy);
+    expect(embedder.calls.length).toBeGreaterThan(EMBEDDER_INSTANCES.length);
+  });
 });
 
 describe("container instances", () => {
@@ -94,6 +112,18 @@ describe("container instances", () => {
     const cap = config.containers?.[0]?.max_instances;
     expect(cap).toBe(EMBEDDER_INSTANCES.length);
     expect(new Set(EMBEDDER_INSTANCES).size).toBe(EMBEDDER_INSTANCES.length);
+  });
+
+  test("moves to the next instance when the package reports no instance available", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? 503 : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
   });
 
   test("moves to the next instance when one answers busy", async () => {

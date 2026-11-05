@@ -12,12 +12,23 @@ import type {
 const SEARCH_K = 24;
 const SIMILAR_K = 12;
 
+export class ApiError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "ApiError";
+    this.retryable = retryable;
+  }
+}
+
 async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal });
   const body = await readJson(response);
   if (!response.ok) {
-    throw new Error(
+    throw new ApiError(
       errorMessage(body) ?? `the server answered ${response.status}`,
+      response.headers.get("retry-after") !== null,
     );
   }
   return body as T;

@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Hero } from "./hero";
 import {
+  ApiError,
   getFilms,
   getFlags,
   logClick,
@@ -227,7 +228,7 @@ export function SearchPage() {
           </p>
           {failure !== null && (
             <p className="m-0 font-mono text-xs text-danger">
-              {`Search failed: ${failure.message}`}
+              {failureMessage(failure)}
             </p>
           )}
           {shots.length > 0 && (
@@ -248,6 +249,11 @@ export function SearchPage() {
       )}
     </main>
   );
+}
+
+export function failureMessage(error: Error): string {
+  if (error instanceof ApiError && error.retryable) return error.message;
+  return `Search failed: ${error.message}`;
 }
 
 function labelFor(
