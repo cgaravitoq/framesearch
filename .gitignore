@@ -3,5 +3,12 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env*
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.m4v
+*.avi
 *.log
 .DS_Store
