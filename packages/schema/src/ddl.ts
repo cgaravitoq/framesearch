@@ -21,6 +21,8 @@ export const DDL: readonly string[] = [
   )`,
   `CREATE TABLE IF NOT EXISTS published (
     film TEXT PRIMARY KEY,
-    version INTEGER NOT NULL
+    version INTEGER NOT NULL,
+    vectors_key TEXT,
+    prior_vectors_key TEXT
   )`,
 ];
