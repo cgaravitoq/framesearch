@@ -285,7 +285,7 @@ describe("publish", () => {
 });
 
 describe("unpublish", () => {
-  test("removes the vectors, then the rows, then the frames", async () => {
+  test("deletes the published version first, then the rows, the vectors and the frames", async () => {
     const { cloud, calls, sql } = fakeCloud([0, 1, 2]);
     await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
     expect(calls).toEqual([
@@ -295,6 +295,16 @@ describe("unpublish", () => {
       `delete frames/${SLUG}/1.jpg`,
       `delete frames/${SLUG}/2.jpg`,
     ]);
-    expect(sql[0]).toContain(`DELETE FROM published WHERE film = '${SLUG}'`);
+    const statements = statementsOf(sql[0] ?? "");
+    expect(statements[DDL.length]).toBe(
+      `DELETE FROM published WHERE film = '${SLUG}'`,
+    );
   });
 });
+
+function statementsOf(batch: string): string[] {
+  return batch
+    .split(";\n")
+    .map((statement) => statement.trim())
+    .filter((statement) => statement !== "");
+}
