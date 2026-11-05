@@ -224,6 +224,28 @@ describe("search cache", () => {
     }
   });
 
+  test("answers an embedding failure with a generic 502", async () => {
+    const fixture = searchFixture("the-terror", 1);
+    const spy = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error(LEAK);
+    }) as unknown as typeof fetch);
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/search?q=castle",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Search is temporarily unavailable" }),
+      );
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
   test("reloads a film republished with the same shot ids", async () => {
     const fixture = searchFixture("white-zombie", 7);
     const embeddings = stubEmbeddings();
@@ -314,6 +336,7 @@ describe("rate limit", () => {
 });
 
 const IP = "203.0.113.9";
+const LEAK = "EMBED_API_KEY sk-secret at /srv/framesearch/embeddings.ts";
 const CHUNK_BYTES = 4096;
 const MAX_CHUNKS = 4;
 

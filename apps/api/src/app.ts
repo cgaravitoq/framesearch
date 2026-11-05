@@ -94,7 +94,7 @@ export function createApp(): Hono<{ Bindings: Env }> {
       ).results;
     } catch (error) {
       console.error("search failed", error);
-      return failure(UNAVAILABLE, 503);
+      return failure(UNAVAILABLE, 502);
     }
     writeCache(key, published.signature, results);
     return searchReply(results, query.value, film.value, "miss");
