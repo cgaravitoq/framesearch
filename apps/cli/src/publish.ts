@@ -7,7 +7,7 @@ import {
   wranglerCloud,
 } from "./cloud.ts";
 import { dataDir, frameFile, vectorsFile } from "./paths.ts";
-import { publishSql } from "./sql.ts";
+import { publishedVersionSql, publishSql } from "./sql.ts";
 import { openStore, readFilm, readShots } from "./store.ts";
 import { parseFilmArg, unwrap } from "./validate.ts";
 import { assertVectorsMatch } from "./vectors.ts";
@@ -81,6 +81,7 @@ export async function publishFilm(
     await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
       cloud.deleteObject(frameKey(slug, idx)),
     );
+    await cloud.executeSql(publishedVersionSql(slug, Date.now()));
 
     return {
       film: slug,
