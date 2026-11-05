@@ -17,14 +17,14 @@ import { dataDir, filmFramesDir, vectorsFile } from "./paths.ts";
 import { createStore, type NewShot, replaceFilm } from "./store.ts";
 import { buildVectors, type VectorSource } from "./vectors.ts";
 
-export interface IndexOptions {
+interface IndexOptions {
   video: string;
   title: string;
   slug: string;
   dataDir?: string | undefined;
 }
 
-export interface IndexReport {
+interface IndexReport {
   film: Film;
   detectedShots: number;
   cuts: number;

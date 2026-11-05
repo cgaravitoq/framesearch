@@ -36,7 +36,7 @@ const KEYWORD_QUERY =
 const KEYWORD_QUERY_FILM =
   "SELECT f.rowid AS id, bm25(shots_fts) AS score FROM shots_fts f JOIN shots s ON s.id = f.rowid WHERE shots_fts MATCH ?1 AND s.film = ?2 ORDER BY score LIMIT ?3";
 
-export interface SearchInput {
+interface SearchInput {
   query: string;
   film: string | null;
   k: number;

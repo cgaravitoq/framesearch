@@ -47,7 +47,7 @@ export function publishedFramesSql(film: string): string {
   return `SELECT idx FROM shots WHERE film = ${text(film)} ORDER BY idx`;
 }
 
-export function ftsText(shot: StoredShot): string {
+function ftsText(shot: StoredShot): string {
   const parts = shot.caption === null ? [] : [shot.caption];
   parts.push(...shot.tags);
   return parts.join(" ").trim();

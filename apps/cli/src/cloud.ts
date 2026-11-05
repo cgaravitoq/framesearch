@@ -15,7 +15,7 @@ const STAMP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const UPLOAD_CONCURRENCY = 8;
 
-export interface StoredObject {
+interface StoredObject {
   key: string;
   file: string;
   contentType: string;

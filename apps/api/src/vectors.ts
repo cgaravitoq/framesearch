@@ -9,7 +9,7 @@ import type { Env } from "./env.ts";
 
 export type ReadDatabase = Pick<D1DatabaseSession, "prepare">;
 
-export interface PublishedFilm {
+interface PublishedFilm {
   slug: string;
   version: number;
   vectorsKey: string | null;
@@ -20,7 +20,7 @@ export interface Published {
   signature: string;
 }
 
-export interface LoadedVectors {
+interface LoadedVectors {
   signature: string;
   store: VectorStore;
   films: ReadonlyMap<number, string>;

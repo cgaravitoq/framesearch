@@ -11,7 +11,6 @@ export type {
   RankedShot,
   RankOptions,
   SearchLogReply,
-  SearchLogRequest,
   SearchReply,
   Shot,
   SimilarReply,

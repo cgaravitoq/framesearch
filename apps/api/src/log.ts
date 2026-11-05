@@ -5,7 +5,7 @@ import type { Env } from "./env.ts";
 const MAX_BODY_BYTES = 8192;
 const MAX_LOGGED_SHOTS = 200;
 
-export type LogResult<T> =
+type LogResult<T> =
   | { ok: true; body: T }
   | { ok: false; status: number; error: string };
 

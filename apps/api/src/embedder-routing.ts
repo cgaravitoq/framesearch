@@ -7,8 +7,8 @@ export const EMBEDDER_INSTANCES = [
   "overflow-2",
 ] as const;
 
-export const BUSY_HEADER = "x-embedder-busy";
-export const BUSY_STATUS = 503;
+const BUSY_HEADER = "x-embedder-busy";
+const BUSY_STATUS = 503;
 export const CONTAINER_MS_HEADER = "x-embedder-ms";
 
 const EMBEDDINGS_URL = "http://embedder/v1/embeddings";

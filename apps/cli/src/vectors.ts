@@ -10,7 +10,7 @@ export interface VectorSource {
   caption: Float32Array | null;
 }
 
-export interface VectorRow {
+interface VectorRow {
   id: number;
   caption: string | null;
 }

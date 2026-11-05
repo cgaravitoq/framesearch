@@ -4,7 +4,7 @@ import { parseFilmSlug, type Validated } from "@framesearch/core";
 
 const VIDEO_EXTENSIONS = [".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi"];
 
-export interface FilmTitle {
+interface FilmTitle {
   title: string;
   slug: string;
 }

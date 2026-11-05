@@ -44,12 +44,6 @@ export interface SimilarReply {
   results: Hit[];
 }
 
-export interface SearchLogRequest {
-  query: string;
-  film: string | null;
-  shotIds: number[];
-}
-
 export interface ClickLogRequest {
   searchId: number;
   shotId: number;

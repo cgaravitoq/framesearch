@@ -1,21 +1,21 @@
-export interface Expected {
+interface Expected {
   film: string;
   from: number;
   to: number;
 }
 
-export interface EvalCase {
+interface EvalCase {
   query: string;
   expected: Expected[];
 }
 
-export interface Metrics {
+interface Metrics {
   hitAt1: number;
   hitAt5: number;
   mrrAt10: number;
 }
 
-export interface Latency {
+interface Latency {
   p50: number;
   p95: number;
 }
@@ -32,8 +32,8 @@ export interface Thresholds {
   mrrAt10?: number | undefined;
 }
 
-export const EVAL_K = 10;
-export const HIT_LIMIT = 5;
+const EVAL_K = 10;
+const HIT_LIMIT = 5;
 
 interface SiteHit {
   film: string;
