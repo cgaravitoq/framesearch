@@ -1,3 +1,4 @@
+import type { D1DatabaseSession } from "@cloudflare/workers-types";
 import { createVectorStore, type FilmVectorSet } from "@framesearch/core";
 import {
   decodeVectors,
@@ -5,6 +6,8 @@ import {
   vectorsKey,
 } from "@framesearch/schema";
 import type { Env } from "./env.ts";
+
+export type ReadDatabase = Pick<D1DatabaseSession, "prepare">;
 
 export interface PublishedFilm {
   slug: string;
@@ -25,9 +28,8 @@ export interface LoadedVectors {
 const PUBLISHED_QUERY =
   "SELECT f.slug AS slug, COALESCE(p.version, 0) AS version FROM films f LEFT JOIN published p ON p.film = f.slug ORDER BY f.slug";
 
-export async function publishedFilms(env: Env): Promise<Published> {
-  const { results } =
-    await env.DB.prepare(PUBLISHED_QUERY).all<PublishedFilm>();
+export async function publishedFilms(db: ReadDatabase): Promise<Published> {
+  const { results } = await db.prepare(PUBLISHED_QUERY).all<PublishedFilm>();
   const films = results.map((row) => ({
     slug: row.slug,
     version: row.version,
