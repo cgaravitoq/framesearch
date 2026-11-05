@@ -5,7 +5,7 @@ import {
   type SearchReply,
   vectorsKey,
 } from "@framesearch/schema";
-import { createApp } from "../src/app.ts";
+import { createApp, hopList } from "../src/app.ts";
 import type { Env } from "../src/env.ts";
 import {
   type FakeSession,
@@ -541,6 +541,77 @@ describe("server timing", () => {
     );
   });
 
+  test("times every read the request made, not only the published one", async () => {
+    const fixture = searchFixture("white-zombie", 1, { delayMs: 10 });
+    const embeddings = stubEmbeddings();
+    try {
+      const response = await createApp().request(
+        "/api/search?q=cellar&k=1",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(200);
+      const header = response.headers.get("server-timing") ?? "";
+      expect(wellFormed(header)).toBe(true);
+      const d1 = phases(header).find((phase) => phase.name === "d1");
+      expect(d1?.duration).toBeGreaterThanOrEqual(25);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("reports the duration of a remote embeddings endpoint as embed", async () => {
+    const fixture = searchFixture("white-zombie", 1);
+    const spy = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      await new Promise<void>((settle) => setTimeout(settle, 10));
+      return new Response(JSON.stringify({ data: [{ embedding: [1, 0] }] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch);
+    try {
+      const response = await createApp().request(
+        "/api/search?q=a%20remote%20embedder",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(200);
+      const header = response.headers.get("server-timing") ?? "";
+      expect(wellFormed(header)).toBe(true);
+      expect(header).toContain('desc="remote"');
+      const embed = phases(header).find((phase) => phase.name === "embed");
+      expect(embed?.duration).toBeGreaterThanOrEqual(8);
+      expect(header.toLowerCase()).not.toContain("embedder");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("collapses a busy burst into one hop list of bounded length", async () => {
+    const fixture = searchFixture("white-zombie", 2);
+    const embedder = fakeEmbedder({ answer: "busy", vector: [1, 0] });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await withFakeTime(async () =>
+      createApp().request(
+        "/api/search?q=a%20busy%20burst%20at%20the%20mill",
+        {},
+        env,
+      ),
+    );
+    expect(response.status).toBe(503);
+    const header = response.headers.get("server-timing") ?? "";
+    expect(wellFormed(header)).toBe(true);
+    expect(header).toMatch(
+      /desc="primary>overflow-1>overflow-2>primary\*[0-9]+ busy=[0-9]+ container=0"/,
+    );
+    expect(header.length).toBeLessThan(120);
+  });
+
   test("splits a similar reply into reads and total", async () => {
     const fixture = searchFixture("night-of-the-living-dead", 4);
     const response = await createApp().request(
@@ -557,6 +628,32 @@ describe("server timing", () => {
       "total",
     ]);
     expect(header).toContain('embed;dur=0;desc="none"');
+  });
+});
+
+describe("hop list", () => {
+  test("collapses a run of the same instance into a count", () => {
+    expect(hopList(["primary"])).toBe("primary");
+    expect(
+      hopList([
+        "primary",
+        "overflow-1",
+        "overflow-2",
+        ...Array.from({ length: 31 }, () => "primary"),
+      ]),
+    ).toBe("primary>overflow-1>overflow-2>primary*31");
+  });
+
+  test("stays bounded when no two hops repeat in a row", () => {
+    const names = Array.from(
+      { length: 60 },
+      (_, at) => ["primary", "overflow-1", "overflow-2"][at % 3] ?? "primary",
+    );
+    const list = hopList(names);
+    expect(list).toBe(
+      "primary>overflow-1>overflow-2>primary>overflow-1>overflow-2>primary>overflow-1>+52",
+    );
+    expect(list.split(">").length).toBeLessThanOrEqual(9);
   });
 });
 
@@ -917,10 +1014,18 @@ interface SearchFixture {
   vectorsReads: () => number;
 }
 
+interface FixtureOptions {
+  delayMs?: number | undefined;
+}
+
 const FIRST_PUBLISH = "publish-1";
 const SECOND_PUBLISH = "publish-2";
 
-function searchFixture(film: string, version: number): SearchFixture {
+function searchFixture(
+  film: string,
+  version: number,
+  options: FixtureOptions = {},
+): SearchFixture {
   let current = version;
   let currentKey: string | null = null;
   const shots = [
@@ -948,6 +1053,7 @@ function searchFixture(film: string, version: number): SearchFixture {
     },
   ];
   const { db, queries, sessions, statements } = fakeDb({
+    delayMs: options.delayMs,
     rows: (sql) => {
       if (sql.includes(PUBLISHED)) {
         return [{ slug: film, vectorsKey: currentKey, version: current }];

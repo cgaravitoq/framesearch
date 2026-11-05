@@ -25,7 +25,13 @@ import {
 import type { Env } from "./env.ts";
 import { readFlags } from "./flags.ts";
 import { logClick, logSearch } from "./log.ts";
-import { runSearch, runSimilar } from "./search.ts";
+import {
+  measureRead,
+  type ReadTimer,
+  readTimer,
+  runSearch,
+  runSimilar,
+} from "./search.ts";
 import { publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
@@ -36,6 +42,7 @@ const UNAVAILABLE = "Search is temporarily unavailable";
 const BUSY = "Search is busy, try again in a moment";
 const BUSY_RETRY_AFTER_SECONDS = "2";
 const SERVER_ERROR = "Something went wrong";
+const MAX_HOPS = 8;
 const MISSING_EMBEDDINGS =
   "search is unavailable: neither EMBED_URL with EMBED_API_KEY and EMBED_MODEL nor the EMBEDDER container is configured";
 
@@ -95,9 +102,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
       return failure(UNAVAILABLE, 503);
     }
     const db = c.env.DB.withSession();
-    const readsStarted = Date.now();
-    const published = await publishedFilms(db);
-    const d1 = Date.now() - readsStarted;
+    const reads = readTimer();
+    const published = await measureRead(reads, () => publishedFilms(db));
     const key = cacheKey(query.value, film.value, k.value);
     const cached = readCache(key, published.signature);
     if (cached !== null) {
@@ -106,28 +112,35 @@ export function createApp(): Hono<{ Bindings: Env }> {
         query.value,
         film.value,
         "hit",
-        timing(d1, trace, started),
+        timing(reads, trace, started),
       );
     }
     let results: Hit[];
     try {
       results = (
-        await runSearch(c.env, db, tracedEmbeddings(config, trace), published, {
-          film: film.value,
-          k: k.value,
-          query: query.value,
-        })
+        await runSearch(
+          c.env,
+          db,
+          tracedEmbeddings(config, trace),
+          published,
+          {
+            film: film.value,
+            k: k.value,
+            query: query.value,
+          },
+          reads,
+        )
       ).results;
     } catch (error) {
       if (error instanceof EmbedderBusy) {
         return failure(BUSY, 503, {
           "retry-after": BUSY_RETRY_AFTER_SECONDS,
-          "server-timing": timing(d1, trace, started),
+          "server-timing": timing(reads, trace, started),
         });
       }
       console.error("search failed", error);
       return failure(UNAVAILABLE, 502, {
-        "server-timing": timing(d1, trace, started),
+        "server-timing": timing(reads, trace, started),
       });
     }
     writeCache(key, published.signature, results);
@@ -136,7 +149,7 @@ export function createApp(): Hono<{ Bindings: Env }> {
       query.value,
       film.value,
       "miss",
-      timing(d1, trace, started),
+      timing(reads, trace, started),
     );
   });
 
@@ -149,17 +162,25 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
     const db = c.env.DB.withSession();
-    const readsStarted = Date.now();
-    const published = await publishedFilms(db);
-    const d1 = Date.now() - readsStarted;
+    const reads = readTimer();
+    const published = await measureRead(reads, () => publishedFilms(db));
     try {
-      const results = await runSimilar(c.env, db, published, id.value, k.value);
+      const results = await runSimilar(
+        c.env,
+        db,
+        published,
+        id.value,
+        k.value,
+        reads,
+      );
       const reply: SimilarReply = { results, shotId: id.value };
-      return json(reply, 200, { "server-timing": timing(d1, null, started) });
+      return json(reply, 200, {
+        "server-timing": timing(reads, null, started),
+      });
     } catch (error) {
       console.error("similar failed", error);
       return failure(SERVER_ERROR, 502, {
-        "server-timing": timing(d1, null, started),
+        "server-timing": timing(reads, null, started),
       });
     }
   });
@@ -242,12 +263,41 @@ function searchReply(
   });
 }
 
-function timing(d1: number, trace: EmbedTrace | null, started: number): string {
-  const embed =
-    trace === null || trace.attempts.length === 0
-      ? 'embed;dur=0;desc="none"'
-      : `embed;dur=${trace.ms};desc="${trace.attempts.join(">")} busy=${trace.busy} container=${trace.containerMs}"`;
-  return `d1;dur=${d1},${embed},total;dur=${Date.now() - started}`;
+function timing(
+  reads: ReadTimer,
+  trace: EmbedTrace | null,
+  started: number,
+): string {
+  const embed = embedPhase(trace);
+  return `d1;dur=${reads.ms},${embed},total;dur=${Date.now() - started}`;
+}
+
+function embedPhase(trace: EmbedTrace | null): string {
+  if (trace === null) return 'embed;dur=0;desc="none"';
+  if (trace.attempts.length === 0) {
+    return `embed;dur=${trace.ms};desc="${trace.ms === 0 ? "none" : "remote"}"`;
+  }
+  const desc = `${hopList(trace.attempts)} busy=${trace.busy} container=${trace.containerMs}`;
+  return `embed;dur=${trace.ms};desc="${desc}"`;
+}
+
+export function hopList(attempts: readonly string[]): string {
+  const runs: { count: number; name: string }[] = [];
+  for (const name of attempts) {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.name === name) {
+      last.count += 1;
+      continue;
+    }
+    runs.push({ count: 1, name });
+  }
+  const kept = runs
+    .slice(0, MAX_HOPS)
+    .map((run) => (run.count === 1 ? run.name : `${run.name}*${run.count}`));
+  const dropped = runs
+    .slice(MAX_HOPS)
+    .reduce((total, run) => total + run.count, 0);
+  return dropped === 0 ? kept.join(">") : `${kept.join(">")}>+${dropped}`;
 }
 
 type FilmChoice =

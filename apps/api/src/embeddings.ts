@@ -11,7 +11,13 @@ import {
 import type { Env } from "./env.ts";
 
 export type Embeddings =
-  | { kind: "url"; endpoint: string; key: string; model: string }
+  | {
+      kind: "url";
+      endpoint: string;
+      key: string;
+      model: string;
+      trace?: EmbedTrace | undefined;
+    }
   | {
       kind: "container";
       namespace: DurableObjectNamespace<EmbedderContainer>;
@@ -39,7 +45,7 @@ export function tracedEmbeddings(
   config: Embeddings,
   trace: EmbedTrace,
 ): Embeddings {
-  return config.kind === "container" ? { ...config, trace } : config;
+  return { ...config, trace };
 }
 
 export async function embedQuery(
@@ -47,11 +53,11 @@ export async function embedQuery(
   query: string,
 ): Promise<Float32Array> {
   const input = embedText(query);
-  if (config.kind === "url") {
-    return await parseVector(await postRemote(config, input), query);
-  }
   const started = Date.now();
   try {
+    if (config.kind === "url") {
+      return await parseVector(await postRemote(config, input), query);
+    }
     const response = await postEmbeddings(
       config.namespace,
       [input],

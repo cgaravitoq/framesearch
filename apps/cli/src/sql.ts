@@ -39,6 +39,10 @@ export function publishedVectorsSql(film: string): string {
   return `SELECT vectors_key AS current, prior_vectors_key AS prior FROM published WHERE film = ${text(film)}`;
 }
 
+export function publishedFilmsSql(films: readonly string[]): string {
+  return `SELECT film FROM published WHERE film IN (${films.map(text).join(", ")})`;
+}
+
 export function publishedFramesSql(film: string): string {
   return `SELECT idx FROM shots WHERE film = ${text(film)} ORDER BY idx`;
 }

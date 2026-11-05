@@ -3,6 +3,7 @@ import { frameKey, vectorsKey } from "@framesearch/schema";
 import {
   type Cloud,
   mapBounded,
+  orphanedVectors,
   UPLOAD_CONCURRENCY,
   wranglerCloud,
 } from "./cloud.ts";
@@ -32,6 +33,7 @@ export async function unpublishFilm(
   const dir = options.dataDir ?? dataDir();
   const cloud = options.cloud ?? wranglerCloud;
   const live = await cloud.publishedVectors(slug);
+  const stamped = await orphanedVectors(cloud, slug);
   const frames = [
     ...new Set([
       ...localFrames(dir, slug),
@@ -40,7 +42,7 @@ export async function unpublishFilm(
   ];
   const keys = [
     ...new Set(
-      [vectorsKey(slug), live.current, live.prior].filter(
+      [vectorsKey(slug), live.current, live.prior, ...stamped].filter(
         (key): key is string => key !== null,
       ),
     ),

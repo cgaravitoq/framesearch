@@ -42,17 +42,38 @@ export interface SearchInput {
   k: number;
 }
 
+export interface ReadTimer {
+  ms: number;
+}
+
+export function readTimer(): ReadTimer {
+  return { ms: 0 };
+}
+
+export async function measureRead<T>(
+  reads: ReadTimer,
+  work: () => Promise<T>,
+): Promise<T> {
+  const started = Date.now();
+  try {
+    return await work();
+  } finally {
+    reads.ms += Date.now() - started;
+  }
+}
+
 export async function runSearch(
   env: Env,
   db: ReadDatabase,
   embeddings: Embeddings,
   published: Published,
   input: SearchInput,
+  reads: ReadTimer,
 ): Promise<SearchReply> {
   const [vector, vectors, keyword] = await Promise.all([
     embedQuery(embeddings, input.query),
     loadVectors(env, published),
-    keywordHits(db, input.query, input.film),
+    keywordHits(db, input.query, input.film, reads),
   ]);
   const lists: SignalHits[] = [
     {
@@ -69,7 +90,7 @@ export async function runSearch(
     },
     { hits: keyword, signal: "bm25" },
   ];
-  const results = await fuseToHits(db, lists, input.k);
+  const results = await fuseToHits(db, lists, input.k, reads);
   return { film: input.film, query: input.query, results };
 }
 
@@ -79,13 +100,14 @@ export async function runSimilar(
   published: Published,
   shotId: number,
   k: number,
+  reads: ReadTimer,
 ): Promise<Hit[]> {
   const vectors = await loadVectors(env, published);
   const film = vectors.films.get(shotId);
   if (film === undefined) return [];
   const source = vectors.store.vector("frame", shotId);
   if (source === undefined) return [];
-  const sameShot = await sameShotIds(db, shotId);
+  const sameShot = await sameShotIds(db, shotId, reads);
   const ranked = vectors.store
     .rank(toQuery(source), {
       exclude: shotId,
@@ -94,17 +116,17 @@ export async function runSimilar(
     })
     .filter((hit) => !sameShot.has(hit.shotId))
     .slice(0, MAX_K);
-  return await fuseToHits(db, [{ signal: "frame", hits: ranked }], k);
+  return await fuseToHits(db, [{ signal: "frame", hits: ranked }], k, reads);
 }
 
 async function sameShotIds(
   db: ReadDatabase,
   shotId: number,
+  reads: ReadTimer,
 ): Promise<Set<number>> {
-  const { results } = await db
-    .prepare(SAME_SHOT_QUERY)
-    .bind(shotId)
-    .all<{ id: number }>();
+  const { results } = await measureRead(reads, () =>
+    db.prepare(SAME_SHOT_QUERY).bind(shotId).all<{ id: number }>(),
+  );
   return new Set(results.map((row) => row.id));
 }
 
@@ -119,16 +141,18 @@ async function keywordHits(
   db: ReadDatabase,
   query: string,
   film: string | null,
+  reads: ReadTimer,
 ): Promise<RankedShot[]> {
   const match = ftsMatch(query);
   if (match === "") return [];
-  const { results } =
+  const { results } = await measureRead(reads, () =>
     film === null
-      ? await db.prepare(KEYWORD_QUERY).bind(match, MAX_K).all<KeywordRow>()
-      : await db
+      ? db.prepare(KEYWORD_QUERY).bind(match, MAX_K).all<KeywordRow>()
+      : db
           .prepare(KEYWORD_QUERY_FILM)
           .bind(match, film, MAX_K)
-          .all<KeywordRow>();
+          .all<KeywordRow>(),
+  );
   return results.map((row) => ({ score: -row.score, shotId: row.id }));
 }
 
@@ -136,12 +160,13 @@ async function fuseToHits(
   db: ReadDatabase,
   lists: SignalHits[],
   k: number,
+  reads: ReadTimer,
 ): Promise<Hit[]> {
   const ids = new Set<number>();
   for (const list of lists) {
     for (const hit of list.hits) ids.add(hit.shotId);
   }
-  const shots = await shotRows(db, [...ids]);
+  const shots = await shotRows(db, [...ids], reads);
   const group = (shotId: number): string => {
     const shot = shots.get(shotId);
     return shot === undefined
@@ -159,17 +184,20 @@ async function fuseToHits(
 async function shotRows(
   db: ReadDatabase,
   ids: readonly number[],
+  reads: ReadTimer,
 ): Promise<Map<number, ShotRow>> {
   const shots = new Map<number, ShotRow>();
   for (let at = 0; at < ids.length; at += D1_PARAMETER_LIMIT) {
     const chunk = ids.slice(at, at + D1_PARAMETER_LIMIT);
     const placeholders = chunk.map((_, index) => `?${index + 1}`).join(", ");
-    const { results } = await db
-      .prepare(
-        `SELECT s.id, s.film, s.idx, s.time, s.shot_start AS shotStart, s.shot_end AS shotEnd, s.caption, s.tags, f.title FROM shots s JOIN films f ON f.slug = s.film WHERE s.id IN (${placeholders})`,
-      )
-      .bind(...chunk)
-      .all<ShotRow>();
+    const { results } = await measureRead(reads, () =>
+      db
+        .prepare(
+          `SELECT s.id, s.film, s.idx, s.time, s.shot_start AS shotStart, s.shot_end AS shotEnd, s.caption, s.tags, f.title FROM shots s JOIN films f ON f.slug = s.film WHERE s.id IN (${placeholders})`,
+        )
+        .bind(...chunk)
+        .all<ShotRow>(),
+    );
     for (const row of results) shots.set(row.id, row);
   }
   return shots;
