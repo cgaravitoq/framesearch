@@ -8,7 +8,7 @@ const POLL_INTERVAL_MS = 250;
 
 export class EmbedderContainer extends Container<Env> {
   override defaultPort = 8080;
-  override sleepAfter = "1h";
+  override sleepAfter = "10m";
   override enableInternet = false;
   override pingEndpoint = "health";
 
