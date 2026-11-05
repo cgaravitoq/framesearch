@@ -275,7 +275,7 @@ describe("search cache", () => {
     }
   });
 
-  test("reloads a film republished with the same shot ids", async () => {
+  test("ignores an R2 write that leaves the published version alone", async () => {
     const fixture = searchFixture("white-zombie", 7);
     const embeddings = stubEmbeddings();
     try {
@@ -292,7 +292,15 @@ describe("search cache", () => {
         fixture.env,
       );
       expect(second.status).toBe(200);
-      expect(second.headers.get("x-cache")).toBe("miss");
+      expect(second.headers.get("x-cache")).toBe("hit");
+      expect(fixture.vectorsReads()).toBe(1);
+      fixture.setVersion(8);
+      const third = await createApp().request(
+        "/api/search?q=mill&k=1",
+        {},
+        fixture.env,
+      );
+      expect(third.headers.get("x-cache")).toBe("miss");
       expect(fixture.vectorsReads()).toBe(2);
     } finally {
       embeddings.restore();
@@ -301,6 +309,30 @@ describe("search cache", () => {
 });
 
 describe("search availability", () => {
+  test("reads the published version once per request and heads no R2 object", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 4);
+    const embeddings = stubEmbeddings();
+    try {
+      const searched = await createApp().request(
+        "/api/search?q=fire&k=1",
+        {},
+        fixture.env,
+      );
+      expect(searched.status).toBe(200);
+      expect(fixture.publishedReads()).toBe(1);
+      const similar = await createApp().request(
+        "/api/similar?id=1",
+        {},
+        fixture.env,
+      );
+      expect(similar.status).toBe(200);
+      expect(fixture.publishedReads()).toBe(2);
+      expect(fixture.heads()).toEqual([]);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
   test("answers from the embedder container when no EMBED_URL is set", async () => {
     const fixture = searchFixture("white-zombie", 1);
     const embedder = fakeEmbedder({ vector: [1, 0] });
@@ -327,7 +359,7 @@ describe("similar", () => {
   test("answers a failed vector load without its error", async () => {
     const { db } = fakeDb({
       rows: (sql) =>
-        sql.includes("MAX(s.id)") ? [{ slug: "the-bat", version: 9 }] : [],
+        sql.includes(PUBLISHED) ? [{ slug: "the-bat", version: 9 }] : [],
     });
     const frames = {
       get: async () => {
@@ -367,7 +399,7 @@ describe("similar", () => {
     const shots = [shot(1, 0, 4), shot(2, 0, 4), shot(3, 4, 9)];
     const { db } = fakeDb({
       rows: (sql) => {
-        if (sql.includes("MAX(s.id)")) return [{ slug: film, version: 3 }];
+        if (sql.includes(PUBLISHED)) return [{ slug: film, version: 3 }];
         if (sql.includes("sibling")) return [{ id: 1 }, { id: 2 }];
         return shots;
       },
@@ -416,6 +448,7 @@ describe("rate limit", () => {
 
 const IP = "203.0.113.9";
 const LEAK = "EMBED_API_KEY sk-secret at /srv/framesearch/embeddings.ts";
+const PUBLISHED = "LEFT JOIN published";
 const CHUNK_BYTES = 4096;
 const MAX_CHUNKS = 4;
 
@@ -573,6 +606,8 @@ describe("log routes", () => {
 
 interface SearchFixture {
   env: Env;
+  heads: () => string[];
+  publishedReads: () => number;
   republishVectors: () => void;
   setVersion: (version: number) => void;
   vectorsReads: () => number;
@@ -604,9 +639,9 @@ function searchFixture(film: string, version: number): SearchFixture {
       title: "Night of the Living Dead",
     },
   ];
-  const { db } = fakeDb({
+  const { db, statements } = fakeDb({
     rows: (sql) => {
-      if (sql.includes("MAX(s.id)")) return [{ slug: film, version: current }];
+      if (sql.includes(PUBLISHED)) return [{ slug: film, version: current }];
       if (sql.includes("bm25")) return [];
       return shots;
     },
@@ -628,6 +663,9 @@ function searchFixture(film: string, version: number): SearchFixture {
       EMBED_URL: "http://embed.test/v1/embeddings",
       FRAMES: frames.bucket,
     }),
+    heads: () => frames.heads,
+    publishedReads: () =>
+      statements.filter((sql) => sql.includes(PUBLISHED)).length,
     republishVectors: () => frames.put(vectorsKey(film), vectors),
     setVersion: (next) => {
       current = next;

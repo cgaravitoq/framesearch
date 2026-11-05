@@ -15,6 +15,7 @@ export interface Query {
 export interface FakeDb {
   db: D1Database;
   queries: Query[];
+  statements: string[];
 }
 
 export interface FakeDbOptions {
@@ -24,6 +25,7 @@ export interface FakeDbOptions {
 
 export function fakeDb(options: FakeDbOptions = {}): FakeDb {
   const queries: Query[] = [];
+  const statements: string[] = [];
   const rowsFor = (sql: string): unknown[] => {
     const rows = options.rows ?? [];
     return typeof rows === "function" ? rows(sql) : rows;
@@ -37,24 +39,29 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
       meta: { changes: 1, last_row_id: options.lastRowId ?? 1 },
     }),
   });
-  const prepare = (sql: string) => ({
-    ...prepared(rowsFor(sql)),
-    bind(...args: unknown[]) {
-      queries.push({ sql, args });
-      return prepared(rowsFor(sql));
-    },
-  });
-  return { db: { prepare } as unknown as D1Database, queries };
+  const prepare = (sql: string) => {
+    statements.push(sql);
+    return {
+      ...prepared(rowsFor(sql)),
+      bind(...args: unknown[]) {
+        queries.push({ sql, args });
+        return prepared(rowsFor(sql));
+      },
+    };
+  };
+  return { db: { prepare } as unknown as D1Database, queries, statements };
 }
 
 export interface FakeR2 {
   bucket: R2Bucket;
   keys: string[];
+  heads: string[];
   put: (key: string, bytes: Uint8Array) => void;
 }
 
 export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
   const keys: string[] = [];
+  const heads: string[] = [];
   const uploads: Record<string, number> = {};
   let clock = 0;
   for (const key of Object.keys(objects)) {
@@ -63,6 +70,7 @@ export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
   }
   const bucket = {
     head: async (key: string) => {
+      heads.push(key);
       const at = uploads[key];
       return at === undefined ? null : { uploaded: new Date(at) };
     },
@@ -79,7 +87,7 @@ export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
     objects[key] = bytes;
     uploads[key] = clock;
   };
-  return { bucket: bucket as unknown as R2Bucket, keys, put };
+  return { bucket: bucket as unknown as R2Bucket, heads, keys, put };
 }
 
 export function fakeRateLimit(allowed: boolean): RateLimit {
