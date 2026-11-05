@@ -645,6 +645,9 @@ describe("similar", () => {
         fakeEnv({ DB: db, FRAMES: frames }),
       );
       expect(response.status).toBe(502);
+      expect(wellFormed(response.headers.get("server-timing") ?? "")).toBe(
+        true,
+      );
       expect(await response.text()).toBe(
         JSON.stringify({ error: "Something went wrong" }),
       );

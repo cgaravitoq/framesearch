@@ -158,7 +158,9 @@ export function createApp(): Hono<{ Bindings: Env }> {
       return json(reply, 200, { "server-timing": timing(d1, null, started) });
     } catch (error) {
       console.error("similar failed", error);
-      return failure(SERVER_ERROR, 502);
+      return failure(SERVER_ERROR, 502, {
+        "server-timing": timing(d1, null, started),
+      });
     }
   });
 
