@@ -9,8 +9,9 @@ It ships with one film, Night of the Living Dead, and anyone can search it read-
   A publish stamps its vectors as `vectors/<slug>-<uuid>.bin` and names that object in the D1 published row, so the next publish writes a new file instead of overwriting the one live searches read.
 - `apps/api` (Hono on Workers): reads through one D1 session served by a nearby replica, embeds the query, ranks the int8 frame and caption vectors held in memory, asks D1 FTS5 for keyword hits, fuses both with RRF and returns each shot once.
   Every search and similar reply carries a `server-timing` header with the D1, embed and total milliseconds.
-- `apps/embedder`: llama.cpp serving EmbeddingGemma 2 in a Cloudflare container reached through a Durable Object, with a primary instance plus two overflow instances that `sleepAfter` an hour, so the deployed Worker carries no embeddings key.
+- `apps/embedder`: llama.cpp serving EmbeddingGemma 2 in a Cloudflare container reached through a Durable Object, with a primary instance plus two overflow instances, each sleeping after 10 idle minutes (`sleepAfter`) since every page load prewarms it, so the deployed Worker carries no embeddings key.
 - `apps/web`: the React SPA the same Worker serves, search as you type, English UI with English and Spanish example queries.
+  Its `/about` page and the footer on every page say the frames are copyrighted, shown at reduced resolution as a fair-use defence with no licence granted, and that rights holders ask for removal through GitHub issues.
 - `packages/schema` and `packages/core`: the contracts and the pure ranking code both sides share.
 
 ## Self-hosting
