@@ -7,11 +7,19 @@ export { EmbedderContainer };
 
 const app = createApp();
 
-app.get("/api/prewarm", async (c) =>
-  c.json({ warm: await prewarmEmbeddings(c.env) }, 200, {
+app.get("/api/prewarm", async (c) => {
+  const address = c.req.header("cf-connecting-ip") ?? "local";
+  const prewarm = await prewarmEmbeddings(c.env, address);
+  if (prewarm === "limited") {
+    return c.json({ error: "too many prewarms from this address" }, 429, {
+      "cache-control": "no-store",
+      "retry-after": "60",
+    });
+  }
+  return c.json({ warm: prewarm === "warm" }, 200, {
     "cache-control": "no-store",
-  }),
-);
+  });
+});
 
 export default {
   fetch(

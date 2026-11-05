@@ -44,16 +44,25 @@ export async function embedQuery(
   return await parseVector(response, query);
 }
 
-export async function prewarmEmbeddings(env: Env): Promise<boolean> {
+export type Prewarm = "warm" | "skipped" | "limited";
+
+export async function prewarmEmbeddings(
+  env: Env,
+  address: string,
+): Promise<Prewarm> {
   const config = embeddingsConfig(env);
-  if (config === null || config.kind !== "container") return false;
+  if (config === null || config.kind !== "container") return "skipped";
+  const { success } = await env.SEARCH_RATE_LIMIT.limit({
+    key: `prewarm:${address}`,
+  });
+  if (!success) return "limited";
   const response = await warmPrimary(config.namespace, [PREWARM_TEXT]);
   if (!response.ok) {
     throw new Error(
       `the embedder answered ${response.status} to the prewarm request`,
     );
   }
-  return true;
+  return "warm";
 }
 
 function postRemote(config: Remote, input: string): Promise<EmbedderReply> {

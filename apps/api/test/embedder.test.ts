@@ -7,7 +7,7 @@ import {
   embedQuery,
   prewarmEmbeddings,
 } from "../src/embeddings.ts";
-import { fakeEmbedder, fakeEnv } from "./support.ts";
+import { fakeEmbedder, fakeEnv, fakeRateLimit } from "./support.ts";
 
 describe("embeddings config", () => {
   test("prefers EMBED_URL so a local llama.cpp still serves without the container", () => {
@@ -133,8 +133,9 @@ describe("prewarm", () => {
     const embedder = fakeEmbedder();
     const warm = await prewarmEmbeddings(
       fakeEnv({ EMBEDDER: embedder.namespace }),
+      "203.0.113.7",
     );
-    expect(warm).toBe(true);
+    expect(warm).toBe("warm");
     expect(embedder.calls).toEqual([
       {
         input: { input: ["warm"] },
@@ -152,7 +153,8 @@ describe("prewarm", () => {
       namespace: embedder.namespace,
     };
     const searching = embedQuery(config, "a");
-    const warming = prewarmEmbeddings(env);
+    const warming = prewarmEmbeddings(env, "203.0.113.7");
+    await Bun.sleep(0);
     const after = embedQuery(config, "b");
     expect(embedder.calls.map((call) => call.instance)).toEqual([
       "primary",
@@ -161,7 +163,8 @@ describe("prewarm", () => {
     ]);
     embedder.release();
     await Promise.all([searching, warming, after]);
-    const warmingAgain = prewarmEmbeddings(env);
+    const warmingAgain = prewarmEmbeddings(env, "203.0.113.7");
+    await Bun.sleep(0);
     const next = embedQuery(config, "c");
     embedder.release();
     await Promise.all([warmingAgain, next]);
@@ -180,12 +183,34 @@ describe("prewarm", () => {
         EMBED_MODEL: "embeddinggemma-2",
         EMBED_URL: "http://127.0.0.1:8104",
       }),
+      "203.0.113.7",
     );
-    expect(warm).toBe(false);
+    expect(warm).toBe("skipped");
     expect(embedder.calls).toEqual([]);
   });
 
   test("does nothing when no embedder is bound", async () => {
-    expect(await prewarmEmbeddings(fakeEnv())).toBe(false);
+    expect(await prewarmEmbeddings(fakeEnv(), "203.0.113.7")).toBe("skipped");
+  });
+
+  test("refuses to wake the container past the address's rate limit", async () => {
+    const embedder = fakeEmbedder();
+    const keys: string[] = [];
+    const limiter = fakeRateLimit(false);
+    const warm = await prewarmEmbeddings(
+      fakeEnv({
+        EMBEDDER: embedder.namespace,
+        SEARCH_RATE_LIMIT: {
+          limit: async (options: { key: string }) => {
+            keys.push(options.key);
+            return await limiter.limit(options);
+          },
+        },
+      }),
+      "203.0.113.7",
+    );
+    expect(warm).toBe("limited");
+    expect(keys).toEqual(["prewarm:203.0.113.7"]);
+    expect(embedder.calls).toEqual([]);
   });
 });
