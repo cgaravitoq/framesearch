@@ -38,10 +38,10 @@ export async function embedQuery(
   query: string,
 ): Promise<Float32Array> {
   const input = embedText(query);
-  const response =
-    config.kind === "url"
-      ? await postRemote(config, input)
-      : await postEmbeddings(config.namespace, [input]);
+  if (config.kind === "url") {
+    return await parseVector(await postRemote(config, input), query);
+  }
+  const response = await postEmbeddings(config.namespace, [input]);
   if (isBusy(response)) throw new EmbedderBusy();
   return await parseVector(response, query);
 }

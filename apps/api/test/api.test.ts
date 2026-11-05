@@ -254,6 +254,32 @@ describe("search cache", () => {
     }
   });
 
+  test("answers a remote embeddings 503 with the generic 502, not busy", async () => {
+    const fixture = searchFixture("the-terror", 1);
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+      (async () =>
+        new Response("upstream overloaded", {
+          status: 503,
+        })) as unknown as typeof fetch,
+    );
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/search?q=castle",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get("retry-after")).toBeNull();
+      expect(await response.json()).toEqual({
+        error: "Search is temporarily unavailable",
+      });
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
   test("answers an embedding failure with a generic 502", async () => {
     const fixture = searchFixture("the-terror", 1);
     const spy = spyOn(globalThis, "fetch").mockImplementation((async () => {
