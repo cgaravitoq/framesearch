@@ -52,9 +52,16 @@ function shape(db: Database): Table[] {
       .query<Column, []>(`PRAGMA table_info(${JSON.stringify(table.name)})`)
       .all(),
     name: table.name,
-    sql: (table.sql ?? "").replace(/\s+/g, " ").trim(),
+    sql: (table.sql ?? "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*([,()])/g, "$1")
+      .trim(),
     type: table.type,
   }));
+}
+
+function alreadyApplied(error: unknown): boolean {
+  return String(error).includes("duplicate column name");
 }
 
 describe("migrations", () => {
@@ -74,7 +81,12 @@ describe("migrations", () => {
     const once = fromMigrations();
     const first = shape(once);
     for (const name of migrationFiles()) {
-      once.exec(readFileSync(join(MIGRATIONS, name), "utf8"));
+      const sql = readFileSync(join(MIGRATIONS, name), "utf8");
+      try {
+        once.exec(sql);
+      } catch (error) {
+        if (!alreadyApplied(error)) throw error;
+      }
     }
     expect(shape(once)).toEqual(first);
   });
@@ -96,5 +108,29 @@ describe("migrations", () => {
       .all();
     expect(rows.map((row) => row.film)).toEqual(["night-of-the-living-dead"]);
     expect(rows[0]?.version).toBeGreaterThan(0);
+  });
+
+  test("leave a film published before the vectors key without one", () => {
+    const db = fromMigrations(
+      migrationFiles().indexOf("0004_published_vectors_key.sql"),
+    );
+    db.exec(
+      "INSERT INTO films (slug, title, duration) VALUES ('night-of-the-living-dead', 'Night of the Living Dead', 5760)",
+    );
+    db.exec(
+      "INSERT INTO published (film, version) VALUES ('night-of-the-living-dead', 3)",
+    );
+    db.exec(
+      readFileSync(join(MIGRATIONS, "0004_published_vectors_key.sql"), "utf8"),
+    );
+    const row = db
+      .query<
+        { prior_vectors_key: string | null; vectors_key: string | null },
+        []
+      >(
+        "SELECT vectors_key, prior_vectors_key FROM published WHERE film = 'night-of-the-living-dead'",
+      )
+      .get();
+    expect(row).toEqual({ prior_vectors_key: null, vectors_key: null });
   });
 });

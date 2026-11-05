@@ -51,11 +51,24 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
   });
   const prepareFor = (sinks: string[][], bound: Query[]) => (sql: string) => {
     for (const sink of sinks) sink.push(sql);
+    const rows = rowsFor(sql);
+    const statement = prepared(rows);
     return {
-      ...prepared(rowsFor(sql)),
+      all: async () => {
+        bound.push({ args: [], sql });
+        return await statement.all();
+      },
+      first: async () => {
+        bound.push({ args: [], sql });
+        return await statement.first();
+      },
+      run: async () => {
+        bound.push({ args: [], sql });
+        return await statement.run();
+      },
       bind(...args: unknown[]) {
-        bound.push({ sql, args });
-        return prepared(rowsFor(sql));
+        bound.push({ args, sql });
+        return prepared(rows);
       },
     };
   };

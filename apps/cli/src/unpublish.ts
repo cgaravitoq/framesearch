@@ -19,7 +19,7 @@ export interface UnpublishOptions {
 export interface UnpublishReport {
   film: string;
   frames: number;
-  vectorsKey: string;
+  vectorsKeys: string[];
   seconds: number;
 }
 
@@ -31,22 +31,29 @@ export async function unpublishFilm(
   const slug = unwrap(parseFilmArg(rawSlug));
   const dir = options.dataDir ?? dataDir();
   const cloud = options.cloud ?? wranglerCloud;
+  const live = await cloud.publishedVectors(slug);
   const frames = [
     ...new Set([
       ...localFrames(dir, slug),
       ...(await cloud.publishedFrames(slug)),
     ]),
   ];
-  const key = vectorsKey(slug);
-  await cloud.deleteObject(key);
+  const keys = [
+    ...new Set(
+      [vectorsKey(slug), live.current, live.prior].filter(
+        (key): key is string => key !== null,
+      ),
+    ),
+  ];
   await cloud.executeSql(unpublishSql(slug));
+  await mapBounded(keys, UPLOAD_CONCURRENCY, (key) => cloud.deleteObject(key));
   await mapBounded(frames, UPLOAD_CONCURRENCY, (idx) =>
     cloud.deleteObject(frameKey(slug, idx)),
   );
   return {
     film: slug,
     frames: frames.length,
-    vectorsKey: key,
+    vectorsKeys: keys,
     seconds: (performance.now() - started) / 1000,
   };
 }
