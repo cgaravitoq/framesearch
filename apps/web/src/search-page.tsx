@@ -23,6 +23,7 @@ import {
 } from "./lib/api";
 import { clock } from "./lib/time";
 import { ShotGrid } from "./shot-grid";
+import { SiteFooter } from "./site-footer";
 
 const DEBOUNCE_MS = 300;
 const MIN_QUERY_LENGTH = 3;
@@ -148,106 +149,112 @@ export function SearchPage() {
   const busy = search.isFetching || similar.isFetching;
 
   return (
-    <main className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 pt-7 pb-10 sm:px-6">
-      <search>
-        <form onSubmit={onSubmit} className="flex flex-wrap items-center gap-3">
-          <span className="mr-3 font-mono text-[15px] font-medium text-accent">
-            framesearch
-          </span>
-          <label htmlFor="query" className="sr-only">
-            Describe a shot
-          </label>
-          <input
-            id="query"
-            ref={inputRef}
-            type="search"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="a woman screaming in close-up"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-12 min-w-0 flex-[1_1_280px] rounded-full border border-edge bg-field px-4.5 text-base text-ink placeholder:text-muted hover:border-edge-soft"
-          />
-          <label htmlFor="film" className="sr-only">
-            Film
-          </label>
-          <select
-            id="film"
-            value={film}
-            onChange={(event) => setFilm(event.target.value)}
-            className="h-12 rounded-full border border-edge bg-field px-3.5 text-sm text-ink hover:border-edge-soft"
+    <div className="mx-auto w-full max-w-[1100px] px-4 sm:px-6">
+      <main className="flex flex-col gap-6 pt-7 pb-10">
+        <search>
+          <form
+            onSubmit={onSubmit}
+            className="flex flex-wrap items-center gap-3"
           >
-            <option value="">All films</option>
-            {films.data?.map((entry) => (
-              <option key={entry.slug} value={entry.slug}>
-                {entry.title}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="h-12 rounded-full border border-edge-soft bg-field px-4.5 text-sm font-medium text-ink hover:border-muted"
-          >
-            Search
-          </button>
-        </form>
-      </search>
-
-      {hero !== null && (
-        <Hero
-          shot={hero}
-          similarPending={similar.isFetching}
-          onSimilar={() => findSimilar(hero)}
-        />
-      )}
-
-      {hero === null && (
-        <section className="flex flex-col gap-3">
-          <p className="m-0 text-sm text-muted">
-            Describe the shot you remember. Results appear as you type.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {EXAMPLES.map((example) => (
-              <button
-                key={example}
-                type="button"
-                onClick={() => pickExample(example)}
-                className="rounded-full border border-edge px-3 py-1.5 text-sm text-body hover:border-edge-soft"
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {(search.data !== undefined || failure !== null) && (
-        <section aria-busy={busy} className="flex flex-col gap-2.5">
-          <p aria-live="polite" className="m-0 font-mono text-xs text-muted">
-            {labelFor(shots.length, search.data, similarReply, hero)}
-          </p>
-          {failure !== null && (
-            <p className="m-0 font-mono text-xs text-danger">
-              {failureMessage(failure)}
-            </p>
-          )}
-          {shots.length > 0 && (
-            <ShotGrid
-              shots={shots}
-              selectedId={hero?.shotId ?? null}
-              onPick={pickShot}
+            <span className="mr-3 font-mono text-[15px] font-medium text-accent">
+              framesearch
+            </span>
+            <label htmlFor="query" className="sr-only">
+              Describe a shot
+            </label>
+            <input
+              id="query"
+              ref={inputRef}
+              type="search"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="a woman screaming in close-up"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-12 min-w-0 flex-[1_1_280px] rounded-full border border-edge bg-field px-4.5 text-base text-ink placeholder:text-muted hover:border-edge-soft"
             />
-          )}
-        </section>
-      )}
+            <label htmlFor="film" className="sr-only">
+              Film
+            </label>
+            <select
+              id="film"
+              value={film}
+              onChange={(event) => setFilm(event.target.value)}
+              className="h-12 rounded-full border border-edge bg-field px-3.5 text-sm text-ink hover:border-edge-soft"
+            >
+              <option value="">All films</option>
+              {films.data?.map((entry) => (
+                <option key={entry.slug} value={entry.slug}>
+                  {entry.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="h-12 rounded-full border border-edge-soft bg-field px-4.5 text-sm font-medium text-ink hover:border-muted"
+            >
+              Search
+            </button>
+          </form>
+        </search>
 
-      {searchLog && (
-        <p className="m-0 text-xs text-muted">
-          Searches are logged anonymously: the query and the shots you open,
-          never your IP.
-        </p>
-      )}
-    </main>
+        {hero !== null && (
+          <Hero
+            shot={hero}
+            similarPending={similar.isFetching}
+            onSimilar={() => findSimilar(hero)}
+          />
+        )}
+
+        {hero === null && (
+          <section className="flex flex-col gap-3">
+            <p className="m-0 text-sm text-muted">
+              Describe the shot you remember. Results appear as you type.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => pickExample(example)}
+                  className="rounded-full border border-edge px-3 py-1.5 text-sm text-body hover:border-edge-soft"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {(search.data !== undefined || failure !== null) && (
+          <section aria-busy={busy} className="flex flex-col gap-2.5">
+            <p aria-live="polite" className="m-0 font-mono text-xs text-muted">
+              {labelFor(shots.length, search.data, similarReply, hero)}
+            </p>
+            {failure !== null && (
+              <p className="m-0 font-mono text-xs text-danger">
+                {failureMessage(failure)}
+              </p>
+            )}
+            {shots.length > 0 && (
+              <ShotGrid
+                shots={shots}
+                selectedId={hero?.shotId ?? null}
+                onPick={pickShot}
+              />
+            )}
+          </section>
+        )}
+
+        {searchLog && (
+          <p className="m-0 text-xs text-muted">
+            Searches are logged anonymously: the query and the shots you open,
+            never your IP.
+          </p>
+        )}
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
 

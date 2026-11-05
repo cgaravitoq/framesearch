@@ -2,20 +2,11 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Outlet,
 } from "@tanstack/react-router";
 import { AboutPage } from "./about-page";
 import { SearchPage } from "./search-page";
-import { SiteFooter } from "./site-footer";
 
-const rootRoute = createRootRoute({
-  component: () => (
-    <>
-      <Outlet />
-      <SiteFooter />
-    </>
-  ),
-});
+const rootRoute = createRootRoute();
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
