@@ -12,6 +12,7 @@ export type ReadDatabase = Pick<D1DatabaseSession, "prepare">;
 export interface PublishedFilm {
   slug: string;
   version: number;
+  vectorsKey: string | null;
 }
 
 export interface Published {
@@ -26,19 +27,22 @@ export interface LoadedVectors {
 }
 
 const PUBLISHED_QUERY =
-  "SELECT f.slug AS slug, COALESCE(p.version, 0) AS version FROM films f LEFT JOIN published p ON p.film = f.slug ORDER BY f.slug";
+  "SELECT f.slug AS slug, COALESCE(p.version, 0) AS version, p.vectors_key AS vectorsKey FROM films f LEFT JOIN published p ON p.film = f.slug ORDER BY f.slug";
 
 export async function publishedFilms(db: ReadDatabase): Promise<Published> {
   const { results } = await db.prepare(PUBLISHED_QUERY).all<PublishedFilm>();
   const films = results.map((row) => ({
     slug: row.slug,
+    vectorsKey: row.vectorsKey,
     version: row.version,
   }));
   return { films, signature: signatureOf(films) };
 }
 
 function signatureOf(films: readonly PublishedFilm[]): string {
-  return films.map((film) => `${film.slug}@${film.version}`).join(",");
+  return films
+    .map((film) => `${film.slug}@${film.version}#${film.vectorsKey ?? ""}`)
+    .join(",");
 }
 
 let loaded: LoadedVectors | null = null;
@@ -72,7 +76,9 @@ async function readFilms(
   const sets: FilmVectorSet[] = [];
   const films = new Map<number, string>();
   for (const film of published.films) {
-    const object = await env.FRAMES.get(vectorsKey(film.slug));
+    const object = await env.FRAMES.get(
+      film.vectorsKey ?? vectorsKey(film.slug),
+    );
     if (object === null) continue;
     const vectors = decodeVectors(await object.arrayBuffer());
     sets.push({ film: film.slug, vectors });
