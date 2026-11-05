@@ -222,6 +222,9 @@ describe("search cache", () => {
       );
       expect(second.status).toBe(200);
       expect(second.headers.get("x-cache")).toBe("hit");
+      const hitTiming = second.headers.get("server-timing") ?? "";
+      expect(wellFormed(hitTiming)).toBe(true);
+      expect(hitTiming.toLowerCase()).not.toContain("fire");
       const reply = (await second.json()) as SearchReply;
       expect(reply.query).toBe("FIRE");
       expect(reply.results.map((hit) => hit.shotId)).toEqual([1]);
@@ -295,6 +298,9 @@ describe("search cache", () => {
         fixture.env,
       );
       expect(response.status).toBe(502);
+      expect(wellFormed(response.headers.get("server-timing") ?? "")).toBe(
+        true,
+      );
       expect(await response.text()).toBe(
         JSON.stringify({ error: "Search is temporarily unavailable" }),
       );
@@ -402,6 +408,10 @@ describe("search availability", () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("2");
+    const busyTiming = response.headers.get("server-timing") ?? "";
+    expect(wellFormed(busyTiming)).toBe(true);
+    expect(busyTiming).toContain("busy=");
+    expect(busyTiming).not.toContain("zombie");
     expect(await response.json()).toEqual({
       error: "Search is busy, try again in a moment",
     });
