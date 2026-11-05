@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
 import { EMBEDDER_INSTANCES, idleInstance } from "../src/embedder-routing.ts";
 import {
@@ -212,5 +213,28 @@ describe("prewarm", () => {
     expect(warm).toBe("limited");
     expect(keys).toEqual(["prewarm:203.0.113.7"]);
     expect(embedder.calls).toEqual([]);
+  });
+});
+
+describe("embedder image", () => {
+  const dockerfile = readFileSync(
+    `${import.meta.dir}/../../embedder/Dockerfile`,
+    "utf8",
+  );
+
+  test("builds from a base image pinned by digest", () => {
+    const bases = dockerfile.match(/^FROM .+$/gm) ?? [];
+    expect(bases.length).toBeGreaterThan(0);
+    for (const base of bases) expect(base).toMatch(/@sha256:[0-9a-f]{64}$/);
+  });
+
+  test("checks every download against a pinned sha256", () => {
+    const steps = dockerfile
+      .split(/^RUN /m)
+      .filter((step) => /curl -/.test(step));
+    expect(steps.length).toBe(2);
+    for (const step of steps) expect(step).toMatch(/sha256sum -c -/);
+    expect(dockerfile).toMatch(/^ARG LLAMA_SHA256=[0-9a-f]{64}$/m);
+    expect(dockerfile).toMatch(/^ARG MODEL_SHA256=[0-9a-f]{64}$/m);
   });
 });
