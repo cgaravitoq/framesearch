@@ -83,6 +83,7 @@ function fakeCloud(
   failAt?: "rows" | "stale",
   live: PublishedVectors = { current: null, prior: null },
   stamped: readonly string[] = [],
+  films: readonly string[] = [],
 ): { cloud: Cloud; calls: string[]; sql: string[] } {
   const calls: string[] = [];
   const sql: string[] = [];
@@ -104,6 +105,8 @@ function fakeCloud(
       );
     },
     publishedFrames: async () => published,
+    publishedFilms: async (asked) =>
+      asked.filter((film) => films.includes(film)),
     publishedVectors: async () => live,
     vectorsFiles: async () => [...stamped],
   };
@@ -232,6 +235,23 @@ describe("publish", () => {
     expect(calls).toContain(`delete ${old}`);
     expect(calls).not.toContain(`delete ${current}`);
     expect(calls).not.toContain(`delete ${report.vectorsKey}`);
+  });
+
+  test("keeps the plain file of a film whose slug is this one plus a stamp", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const other = `${SLUG}-0f0f0f0f-1111-4222-8333-444455556666`;
+    const { cloud, calls } = fakeCloud(
+      [],
+      undefined,
+      undefined,
+      [vectorsKey(other)],
+      [other],
+    );
+    await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(calls).not.toContain(`delete ${vectorsKey(other)}`);
   });
 
   test("keeps the plain file of a film published before the keys as the previous one", async () => {
@@ -451,6 +471,19 @@ describe("unpublish", () => {
     const report = await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
     expect(calls).toContain(`delete ${crashed}`);
     expect(report.vectorsKeys).toContain(crashed);
+  });
+
+  test("keeps the plain file of a film whose slug is this one plus a stamp on unpublish", async () => {
+    const other = `${SLUG}-0f0f0f0f-1111-4222-8333-444455556666`;
+    const { cloud, calls } = fakeCloud(
+      [],
+      undefined,
+      undefined,
+      [vectorsKey(other)],
+      [other],
+    );
+    await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
+    expect(calls).not.toContain(`delete ${vectorsKey(other)}`);
   });
 
   test("deletes the plain file alone when the row named no other", async () => {

@@ -3,6 +3,7 @@ import { decodeVectors, frameKey, vectorsKey } from "@framesearch/schema";
 import {
   type Cloud,
   mapBounded,
+  orphanedVectors,
   UPLOAD_CONCURRENCY,
   wranglerCloud,
 } from "./cloud.ts";
@@ -71,7 +72,7 @@ export async function publishFilm(
       (idx) => !current.has(idx),
     );
     const live = await cloud.publishedVectors(slug);
-    const stamped = await cloud.vectorsFiles(slug);
+    const stamped = await orphanedVectors(cloud, slug);
     const key = vectorsKey(slug, crypto.randomUUID());
     await cloud.putObjects(
       frames.map((frame) => ({ ...frame, contentType: "image/jpeg" })),

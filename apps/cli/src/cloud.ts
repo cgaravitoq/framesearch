@@ -1,7 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { publishedFramesSql, publishedVectorsSql } from "./sql.ts";
+import {
+  publishedFilmsSql,
+  publishedFramesSql,
+  publishedVectorsSql,
+} from "./sql.ts";
 
 const WRANGLER = ["npx", "-y", "wrangler@4"];
 const OUTPUT_TAIL = 400;
@@ -21,6 +25,7 @@ export interface Cloud {
   putObjects(objects: readonly StoredObject[]): Promise<void>;
   deleteObject(key: string): Promise<void>;
   executeSql(sql: string): Promise<void>;
+  publishedFilms(films: readonly string[]): Promise<string[]>;
   publishedFrames(film: string): Promise<number[]>;
   publishedVectors(film: string): Promise<PublishedVectors>;
   vectorsFiles(film: string): Promise<string[]>;
@@ -128,6 +133,19 @@ export async function vectorsFiles(film: string): Promise<string[]> {
   }
 }
 
+export async function orphanedVectors(
+  cloud: Cloud,
+  film: string,
+): Promise<string[]> {
+  const listed = await cloud.vectorsFiles(film);
+  const others = new Set(await cloud.publishedFilms(listed.map(plainFilm)));
+  return listed.filter((key) => !others.has(plainFilm(key)));
+}
+
+function plainFilm(key: string): string {
+  return key.slice("vectors/".length, -".bin".length);
+}
+
 function stampedFilm(key: string, prefix: string): boolean {
   if (!key.startsWith(prefix) || !key.endsWith(".bin")) return false;
   return STAMP.test(key.slice(prefix.length, -4));
@@ -150,6 +168,23 @@ export async function executeSql(sql: string): Promise<void> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+export async function publishedFilms(
+  films: readonly string[],
+): Promise<string[]> {
+  if (films.length === 0) return [];
+  const stdout = await wrangler([
+    "d1",
+    "execute",
+    databaseName(),
+    "--remote",
+    "--json",
+    "--command",
+    publishedFilmsSql(films),
+  ]);
+  const [reply] = JSON.parse(stdout) as D1Reply<{ film: string }>[];
+  return reply?.results.map((row) => row.film) ?? [];
 }
 
 export async function publishedFrames(film: string): Promise<number[]> {
@@ -186,6 +221,7 @@ export async function publishedVectors(
 export const wranglerCloud: Cloud = {
   deleteObject,
   executeSql,
+  publishedFilms,
   publishedFrames,
   publishedVectors,
   putObjects,
