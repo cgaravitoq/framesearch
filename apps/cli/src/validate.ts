@@ -53,3 +53,20 @@ export function unwrap<T>(result: Validated<T>): T {
   if (!result.ok) throw new Error(result.error);
   return result.value;
 }
+
+export function parseBaseUrl(raw: string): Validated<string> {
+  const value = raw.trim();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { ok: false, error: `${value} is not a url` };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: `${value} is not an http or https url` };
+  }
+  return {
+    ok: true,
+    value: `${url.origin}${url.pathname.replace(/\/+$/, "")}`,
+  };
+}

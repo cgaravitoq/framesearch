@@ -4,19 +4,29 @@ import {
   parseQuery,
   parseShotId,
 } from "@framesearch/core";
-import type { Film, SearchReply } from "@framesearch/schema";
+import type {
+  ErrorReply,
+  Film,
+  FilmsReply,
+  Hit,
+  SearchReply,
+  SimilarReply,
+} from "@framesearch/schema";
 import { frameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
+import { cacheKey, readCache, writeCache } from "./cache.ts";
 import { embeddingsConfig } from "./embeddings.ts";
 import type { Env } from "./env.ts";
 import { logClick, logSearch } from "./log.ts";
 import { runSearch, runSimilar } from "./search.ts";
-import { hash, publishedFilms } from "./vectors.ts";
+import { publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
 const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
-const SEARCH_CACHE_SECONDS = 3600;
+const SEARCH_CACHE_SECONDS = 60;
+const UNAVAILABLE = "Search is temporarily unavailable";
+const SERVER_ERROR = "Something went wrong";
 const MISSING_EMBEDDINGS =
   "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set";
 
@@ -27,7 +37,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const { results } = await c.env.DB.prepare(
       "SELECT slug, title, duration FROM films ORDER BY title",
     ).all<Film>();
-    return json({ films: results });
+    const reply: FilmsReply = { films: results };
+    return json(reply);
   });
 
   app.get("/frames/:film/:frame", async (c) => {
@@ -62,28 +73,31 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
     const embeddings = embeddingsConfig(c.env);
-    if (embeddings === null) return failure(MISSING_EMBEDDINGS, 503);
-    const published = await publishedFilms(c.env);
-    const cache = caches.default;
-    const key = cacheKey(c.req.url, published.signature);
-    const cached = await cache.match(key);
-    if (cached !== undefined) return tagged(cached);
-    let reply: SearchReply;
-    try {
-      reply = await runSearch(c.env, embeddings, published, {
-        film: film.value,
-        k: k.value,
-        query: query.value,
-      });
-    } catch (error) {
-      return failure(message(error), 502);
+    if (embeddings === null) {
+      console.error(MISSING_EMBEDDINGS);
+      return failure(UNAVAILABLE, 503);
     }
-    const response = json(reply, 200, {
-      "cache-control": `public, max-age=${SEARCH_CACHE_SECONDS}`,
-      "x-cache": "miss",
-    });
-    c.executionCtx.waitUntil(cache.put(key, response.clone()));
-    return response;
+    const published = await publishedFilms(c.env);
+    const key = cacheKey(query.value, film.value, k.value);
+    const cached = readCache(key, published.signature);
+    if (cached !== null) {
+      return searchReply(cached, query.value, film.value, "hit");
+    }
+    let results: Hit[];
+    try {
+      results = (
+        await runSearch(c.env, embeddings, published, {
+          film: film.value,
+          k: k.value,
+          query: query.value,
+        })
+      ).results;
+    } catch (error) {
+      console.error("search failed", error);
+      return failure(UNAVAILABLE, 502);
+    }
+    writeCache(key, published.signature, results);
+    return searchReply(results, query.value, film.value, "miss");
   });
 
   app.get("/api/similar", async (c) => {
@@ -95,12 +109,12 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!k.ok) return failure(k.error, 400);
     const published = await publishedFilms(c.env);
     try {
-      return json({
-        results: await runSimilar(c.env, published, id.value, k.value),
-        shotId: id.value,
-      });
+      const results = await runSimilar(c.env, published, id.value, k.value);
+      const reply: SimilarReply = { results, shotId: id.value };
+      return json(reply);
     } catch (error) {
-      return failure(message(error), 502);
+      console.error("similar failed", error);
+      return failure(SERVER_ERROR, 502);
     }
   });
 
@@ -115,7 +129,10 @@ export function createApp(): Hono<{ Bindings: Env }> {
   });
 
   app.notFound((c) => failure(`no route for ${c.req.path}`, 404));
-  app.onError((error) => failure(message(error), 500));
+  app.onError((error) => {
+    console.error("unhandled error", error);
+    return failure(SERVER_ERROR, 500);
+  });
   return app;
 }
 
@@ -139,11 +156,8 @@ function failure(
   status: number,
   headers: Record<string, string> = {},
 ): Response {
-  return json({ error }, status, headers);
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const reply: ErrorReply = { error };
+  return json(reply, status, headers);
 }
 
 async function rateLimited(
@@ -161,16 +175,17 @@ async function rateLimited(
   );
 }
 
-function cacheKey(url: string, signature: string): string {
-  const key = new URL(url);
-  key.searchParams.set("v", hash(signature));
-  return key.toString();
-}
-
-function tagged(response: Response): Response {
-  const replay = new Response(response.body, response);
-  replay.headers.set("x-cache", "hit");
-  return replay;
+function searchReply(
+  results: Hit[],
+  query: string,
+  film: string | null,
+  cache: "hit" | "miss",
+): Response {
+  const reply: SearchReply = { film, query, results };
+  return json(reply, 200, {
+    "cache-control": `public, max-age=${SEARCH_CACHE_SECONDS}`,
+    "x-cache": cache,
+  });
 }
 
 type FilmChoice =

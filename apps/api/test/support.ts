@@ -50,11 +50,22 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
 export interface FakeR2 {
   bucket: R2Bucket;
   keys: string[];
+  put: (key: string, bytes: Uint8Array) => void;
 }
 
 export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
   const keys: string[] = [];
+  const uploads: Record<string, number> = {};
+  let clock = 0;
+  for (const key of Object.keys(objects)) {
+    clock += 1;
+    uploads[key] = clock;
+  }
   const bucket = {
+    head: async (key: string) => {
+      const at = uploads[key];
+      return at === undefined ? null : { uploaded: new Date(at) };
+    },
     get: async (key: string) => {
       keys.push(key);
       const bytes = objects[key];
@@ -63,7 +74,12 @@ export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
         : { arrayBuffer: async () => bytes.slice().buffer };
     },
   };
-  return { bucket: bucket as unknown as R2Bucket, keys };
+  const put = (key: string, bytes: Uint8Array) => {
+    clock += 1;
+    objects[key] = bytes;
+    uploads[key] = clock;
+  };
+  return { bucket: bucket as unknown as R2Bucket, keys, put };
 }
 
 export function fakeRateLimit(allowed: boolean): RateLimit {
