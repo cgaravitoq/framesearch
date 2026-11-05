@@ -60,8 +60,18 @@ function shape(db: Database): Table[] {
   }));
 }
 
-function alreadyApplied(error: unknown): boolean {
-  return String(error).includes("duplicate column name");
+const RERUN_DUPLICATES = new Map([
+  ["0004_published_vectors_key.sql", "duplicate column name: vectors_key"],
+]);
+
+function applyAgain(db: Database, name: string, sql: string): void {
+  try {
+    db.exec(sql);
+  } catch (error) {
+    const expected = RERUN_DUPLICATES.get(name);
+    const message = error instanceof Error ? error.message : String(error);
+    if (expected === undefined || message !== expected) throw error;
+  }
 }
 
 describe("migrations", () => {
@@ -81,14 +91,27 @@ describe("migrations", () => {
     const once = fromMigrations();
     const first = shape(once);
     for (const name of migrationFiles()) {
-      const sql = readFileSync(join(MIGRATIONS, name), "utf8");
-      try {
-        once.exec(sql);
-      } catch (error) {
-        if (!alreadyApplied(error)) throw error;
-      }
+      applyAgain(once, name, readFileSync(join(MIGRATIONS, name), "utf8"));
     }
     expect(shape(once)).toEqual(first);
+  });
+
+  test("swallows only the duplicate column 0004 reruns", () => {
+    const db = fromMigrations();
+    const readd = "ALTER TABLE published ADD COLUMN vectors_key TEXT";
+    expect(() =>
+      applyAgain(db, "0004_published_vectors_key.sql", readd),
+    ).not.toThrow();
+    expect(() => applyAgain(db, "0001_search_log.sql", readd)).toThrow(
+      "duplicate column name: vectors_key",
+    );
+    expect(() =>
+      applyAgain(
+        db,
+        "0004_published_vectors_key.sql",
+        "ALTER TABLE published ADD COLUMN prior_vectors_key TEXT",
+      ),
+    ).toThrow("duplicate column name: prior_vectors_key");
   });
 
   test("give every film published before the table a version", () => {
