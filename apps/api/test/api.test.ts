@@ -381,6 +381,20 @@ describe("read sessions", () => {
     }
   });
 
+  test("reads the films list through one session", async () => {
+    const { db, sessions } = fakeDb();
+    const response = await createApp().request(
+      "/api/films",
+      {},
+      fakeEnv({ DB: db }),
+    );
+    expect(response.status).toBe(200);
+    expect(sessions.length).toBe(1);
+    expect(
+      sessions[0]?.statements.some((sql) => sql.includes("FROM films")),
+    ).toBe(true);
+  });
+
   test("opens a new session for each request", async () => {
     const fixture = searchFixture("night-of-the-living-dead", 4);
     const embeddings = stubEmbeddings();
