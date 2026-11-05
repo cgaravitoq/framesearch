@@ -3,6 +3,7 @@ const VERSION = 1;
 const HEADER_BYTES = 15;
 const RECORD_HEADER_BYTES = 4;
 const INT8_SCALE = 127;
+const MAX_SHOT_ID = 0x7fffffff;
 
 export interface ShotVector {
   shotId: number;
@@ -48,6 +49,7 @@ export function encodeVectors(vectors: FilmVectors): Uint8Array {
         `shot ${record.shotId} carries ${record.values.length} values, expected ${dim}`,
       );
     }
+    assertShotId(record.shotId);
     view.setUint32(at, record.shotId, true);
     bytes.set(
       new Uint8Array(record.values.buffer, record.values.byteOffset, dim),
@@ -84,11 +86,17 @@ export function decodeVectors(buffer: ArrayBuffer | Uint8Array): FilmVectors {
       `truncated vector file: ${bytes.byteLength} bytes, expected ${expected}`,
     );
   }
+  if (bytes.byteLength > expected) {
+    throw new Error(
+      `vector file holds ${bytes.byteLength - expected} bytes past its last record, expected ${expected}`,
+    );
+  }
   let at = HEADER_BYTES;
   const read = (count: number): ShotVector[] => {
     const records: ShotVector[] = [];
     for (let index = 0; index < count; index += 1) {
       const shotId = view.getUint32(at, true);
+      assertShotId(shotId);
       const values = new Int8Array(dim);
       values.set(
         new Int8Array(
@@ -105,4 +113,12 @@ export function decodeVectors(buffer: ArrayBuffer | Uint8Array): FilmVectors {
   const frames = read(frameCount);
   const captions = read(captionCount);
   return { dim, frames, captions };
+}
+
+function assertShotId(shotId: number): void {
+  if (!Number.isInteger(shotId) || shotId < 1 || shotId > MAX_SHOT_ID) {
+    throw new Error(
+      `shot id ${shotId} must fit int32, from 1 to ${MAX_SHOT_ID}`,
+    );
+  }
 }

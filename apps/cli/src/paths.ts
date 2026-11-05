@@ -10,7 +10,15 @@ export const DEFAULT_DATA_DIR = join(
 );
 
 export function dataDir(): string {
-  return process.env.FRAMESEARCH_DATA ?? DEFAULT_DATA_DIR;
+  const configured = process.env.FRAMESEARCH_DATA;
+  if (configured === undefined) return DEFAULT_DATA_DIR;
+  const dir = configured.trim();
+  if (dir === "") {
+    throw new Error(
+      `FRAMESEARCH_DATA is set but empty; unset it to use ${DEFAULT_DATA_DIR}`,
+    );
+  }
+  return dir;
 }
 
 export function dbFile(dir: string): string {

@@ -30,6 +30,7 @@ export interface CaptionOptions {
   apiKey: string;
   budgetUsd: number;
   concurrency?: number;
+  ask?: (image: Uint8Array) => Promise<CaptionReply>;
 }
 
 export interface CaptionReport {
@@ -38,7 +39,7 @@ export interface CaptionReport {
   failed: number;
 }
 
-interface ChatReply {
+export interface CaptionReply {
   content: string;
   cost: number;
 }
@@ -78,24 +79,57 @@ export async function captionImages(
   options: CaptionOptions,
 ): Promise<CaptionReport> {
   const captions: (Caption | null)[] = images.map(() => null);
-  const concurrency = options.concurrency ?? CAPTION_CONCURRENCY;
-  let costUsd = 0;
+  const concurrency = Math.max(1, options.concurrency ?? CAPTION_CONCURRENCY);
+  const ask =
+    options.ask ?? ((image: Uint8Array) => request(options.apiKey, image));
+  let spent = 0;
+  let highest = 0;
+  let answered = 0;
+  let inflight = 0;
   let failed = 0;
   let next = 0;
+  let waiting: (() => void)[] = [];
+
+  const wake = (): void => {
+    const parked = waiting;
+    waiting = [];
+    for (const resume of parked) resume();
+  };
+
+  const mayAsk = (): boolean => {
+    if (spent >= options.budgetUsd) return false;
+    if (answered === 0) return inflight === 0;
+    return spent + (inflight + 1) * highest <= options.budgetUsd;
+  };
 
   const worker = async (): Promise<void> => {
     for (;;) {
-      if (costUsd >= options.budgetUsd) return;
+      if (next >= images.length || spent >= options.budgetUsd) return;
+      if (!mayAsk()) {
+        if (inflight === 0) return;
+        await new Promise<void>((resolve) => waiting.push(resolve));
+        continue;
+      }
+      const image = images[next];
+      if (image === undefined) return;
       const index = next;
       next += 1;
-      const image = images[index];
-      if (image === undefined) return;
+      inflight += 1;
       let caption: Caption | null = null;
-      for (let attempt = 0; attempt < 2 && caption === null; attempt += 1) {
-        if (costUsd >= options.budgetUsd) return;
-        const reply = await request(options.apiKey, image);
-        costUsd += reply.cost;
-        caption = parseCaption(reply.content);
+      try {
+        for (let attempt = 0; attempt < 2 && caption === null; attempt += 1) {
+          if (attempt > 0 && spent + inflight * highest > options.budgetUsd) {
+            break;
+          }
+          const reply = await ask(image);
+          spent += reply.cost;
+          highest = Math.max(highest, reply.cost);
+          answered += 1;
+          caption = parseCaption(reply.content);
+        }
+      } finally {
+        inflight -= 1;
+        wake();
       }
       if (caption === null) {
         failed += 1;
@@ -108,10 +142,13 @@ export async function captionImages(
   await Promise.all(
     Array.from({ length: Math.min(concurrency, images.length) }, worker),
   );
-  return { captions, costUsd, failed };
+  return { captions, costUsd: spent, failed };
 }
 
-async function request(apiKey: string, image: Uint8Array): Promise<ChatReply> {
+async function request(
+  apiKey: string,
+  image: Uint8Array,
+): Promise<CaptionReply> {
   const base64 = Buffer.from(image).toString("base64");
   const response = await fetch(OPENROUTER_URL, {
     method: "POST",

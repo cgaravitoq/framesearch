@@ -37,6 +37,29 @@ describe("vectors", () => {
     ).toThrow(/truncated/);
   });
 
+  test("rejects bytes past the last record", () => {
+    const bytes = encodeVectors(SAMPLE);
+    const padded = new Uint8Array(bytes.byteLength + 4);
+    padded.set(bytes);
+    expect(() => decodeVectors(padded)).toThrow(/holds 4 bytes past/);
+  });
+
+  test("rejects a shot id beyond int32", () => {
+    const bytes = encodeVectors(SAMPLE);
+    const patched = Uint8Array.from(bytes);
+    new DataView(patched.buffer).setUint32(15, 0x80000000, true);
+    expect(() => decodeVectors(patched)).toThrow(/must fit int32/);
+  });
+
+  test("refuses to encode a shot id beyond int32", () => {
+    expect(() =>
+      encodeVectors({
+        ...SAMPLE,
+        frames: [{ shotId: 0x80000000, values: Int8Array.from([1, 2, 3, 4]) }],
+      }),
+    ).toThrow(/must fit int32/);
+  });
+
   test("rejects a wrong version", () => {
     const bytes = encodeVectors(SAMPLE);
     const patched = Uint8Array.from(bytes);
