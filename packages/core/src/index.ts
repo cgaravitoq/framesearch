@@ -1,11 +1,6 @@
-export type {
-  FusionOptions,
-  FusionWeights,
-  Signal,
-  SignalHits,
-} from "./fusion.ts";
+export type { SignalHits } from "./fusion.ts";
 export { fuse, RRF_K } from "./fusion.ts";
-export { embedText, QUERY_PREFIX } from "./query.ts";
+export { embedText } from "./query.ts";
 export {
   DEFAULT_K,
   MAX_K,

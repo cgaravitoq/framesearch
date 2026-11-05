@@ -2,7 +2,7 @@ import type { RankedShot } from "@framesearch/schema";
 
 export const RRF_K = 60;
 
-export type Signal = "frame" | "caption" | "bm25";
+type Signal = "frame" | "caption" | "bm25";
 
 const SIGNAL_PRIORITY: readonly Signal[] = ["frame", "caption", "bm25"];
 
@@ -11,9 +11,9 @@ export interface SignalHits {
   hits: readonly RankedShot[];
 }
 
-export type FusionWeights = Partial<Record<Signal, number>>;
+type FusionWeights = Partial<Record<Signal, number>>;
 
-export interface FusionOptions {
+interface FusionOptions {
   weights?: FusionWeights | undefined;
   limit?: number | undefined;
 }
