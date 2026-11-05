@@ -28,7 +28,7 @@ const SEARCH_CACHE_SECONDS = 60;
 const UNAVAILABLE = "Search is temporarily unavailable";
 const SERVER_ERROR = "Something went wrong";
 const MISSING_EMBEDDINGS =
-  "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set";
+  "search is unavailable: neither EMBED_URL with EMBED_API_KEY and EMBED_MODEL nor the EMBEDDER container is configured";
 
 export function createApp(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();

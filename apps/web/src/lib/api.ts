@@ -38,6 +38,10 @@ function errorMessage(body: unknown): string | null {
   return null;
 }
 
+export function prewarmEmbedder(): void {
+  void fetch("/api/prewarm").catch(() => undefined);
+}
+
 export async function getFilms(signal: AbortSignal): Promise<Film[]> {
   const reply = await getJson<FilmsReply>("/api/films", signal);
   return reply.films;

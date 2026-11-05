@@ -10,6 +10,28 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/frames/*"]
   },
+  "containers": [
+    {
+      "class_name": "EmbedderContainer",
+      "image": "../embedder/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 3
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EMBEDDER",
+        "class_name": "EmbedderContainer"
+      }
+    ]
+  },
+  "exports": {
+    "EmbedderContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
   "r2_buckets": [
     {
       "binding": "FRAMES",

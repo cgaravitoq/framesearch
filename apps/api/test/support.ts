@@ -1,8 +1,10 @@
 import type {
   D1Database,
+  DurableObjectNamespace,
   R2Bucket,
   RateLimit,
 } from "@cloudflare/workers-types";
+import type { EmbedderContainer } from "../src/embedder.ts";
 import type { Env } from "../src/env.ts";
 
 export interface Query {
@@ -83,6 +85,64 @@ export function fakeR2(objects: Record<string, Uint8Array> = {}): FakeR2 {
 export function fakeRateLimit(allowed: boolean): RateLimit {
   const limiter = { limit: async () => ({ success: allowed }) };
   return limiter as unknown as RateLimit;
+}
+
+export interface EmbedderCall {
+  instance: string;
+  path: string;
+  input: unknown;
+}
+
+export interface FakeEmbedder {
+  namespace: DurableObjectNamespace<EmbedderContainer>;
+  calls: EmbedderCall[];
+  release(): void;
+}
+
+export interface FakeEmbedderOptions {
+  hold?: boolean;
+  status?: number;
+  vector?: number[];
+}
+
+export function fakeEmbedder(options: FakeEmbedderOptions = {}): FakeEmbedder {
+  const calls: EmbedderCall[] = [];
+  const waiting: (() => void)[] = [];
+  const reply = (): Response =>
+    options.status !== undefined && options.status !== 200
+      ? new Response("embedder unavailable", { status: options.status })
+      : new Response(
+          JSON.stringify({
+            data: [{ embedding: options.vector ?? [3, 4], index: 0 }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+  const stub = (instance: string) => ({
+    fetch: async (url: string, init?: RequestInit) => {
+      const body = typeof init?.body === "string" ? init.body : "";
+      calls.push({
+        input: JSON.parse(body === "" ? "{}" : body),
+        instance,
+        path: new URL(url).pathname,
+      });
+      if (options.hold === true) {
+        await new Promise<void>((resolve) => waiting.push(resolve));
+      }
+      return reply();
+    },
+  });
+  const namespace = {
+    getByName: (name: string) => stub(name),
+    idFromName: (name: string) => name,
+  };
+  return {
+    calls,
+    namespace:
+      namespace as unknown as DurableObjectNamespace<EmbedderContainer>,
+    release: () => {
+      for (const resolve of waiting.splice(0)) resolve();
+    },
+  };
 }
 
 export function fakeEnv(overrides: Partial<Env> = {}): Env {

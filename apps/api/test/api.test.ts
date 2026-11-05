@@ -7,7 +7,13 @@ import {
 } from "@framesearch/schema";
 import { createApp } from "../src/app.ts";
 import type { Env } from "../src/env.ts";
-import { fakeDb, fakeEnv, fakeR2, fakeRateLimit } from "./support.ts";
+import {
+  fakeDb,
+  fakeEmbedder,
+  fakeEnv,
+  fakeR2,
+  fakeRateLimit,
+} from "./support.ts";
 
 describe("films", () => {
   test("lists the published films ordered by title", async () => {
@@ -291,6 +297,29 @@ describe("search cache", () => {
     } finally {
       embeddings.restore();
     }
+  });
+});
+
+describe("search availability", () => {
+  test("answers from the embedder container when no EMBED_URL is set", async () => {
+    const fixture = searchFixture("white-zombie", 1);
+    const embedder = fakeEmbedder({ vector: [1, 0] });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await createApp().request(
+      "/api/search?q=a%20zombie%20at%20the%20mill",
+      {},
+      env,
+    );
+    expect(response.status).toBe(200);
+    const reply = (await response.json()) as SearchReply;
+    expect(reply.results.map((hit) => hit.shotId)).toEqual([1, 2]);
+    expect(embedder.calls.map((call) => call.instance)).toEqual(["primary"]);
   });
 });
 
