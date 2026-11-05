@@ -43,8 +43,8 @@ env:
   EMBED_URL                OpenAI-compatible embeddings server
                            (default http://localhost:8104)
   OPENROUTER_API_KEY       caption key, required by index
-  FRAMESEARCH_R2_BUCKET    R2 bucket (default framesearch-staging)
-  FRAMESEARCH_D1_DATABASE  D1 database (default framesearch-staging)
+  FRAMESEARCH_R2_BUCKET    R2 bucket (default framesearch)
+  FRAMESEARCH_D1_DATABASE  D1 database (default framesearch)
 
 publish and unpublish need \`npx -y wrangler@4\` with a logged-in Cloudflare account.`;
 
