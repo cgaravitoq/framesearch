@@ -13,12 +13,12 @@ import { openStore, readFilm, readShots } from "./store.ts";
 import { parseFilmArg, unwrap } from "./validate.ts";
 import { assertVectorsMatch } from "./vectors.ts";
 
-export interface PublishOptions {
+interface PublishOptions {
   dataDir?: string | undefined;
   cloud?: Cloud | undefined;
 }
 
-export interface PublishReport {
+interface PublishReport {
   film: string;
   shots: number;
   captions: number;

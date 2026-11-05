@@ -15,7 +15,7 @@ export function cosine(left: Float32Array, right: Float32Array): number {
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
-export interface DedupResult {
+interface DedupResult {
   kept: number[];
   dropped: number[];
 }

@@ -12,12 +12,12 @@ import { unpublishSql } from "./sql.ts";
 import { openStore, readShots } from "./store.ts";
 import { parseFilmArg, unwrap } from "./validate.ts";
 
-export interface UnpublishOptions {
+interface UnpublishOptions {
   dataDir?: string | undefined;
   cloud?: Cloud | undefined;
 }
 
-export interface UnpublishReport {
+interface UnpublishReport {
   film: string;
   frames: number;
   vectorsKeys: string[];

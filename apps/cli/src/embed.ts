@@ -1,7 +1,7 @@
-export const EMBED_BATCH_SIZE = 8;
-export const DEFAULT_EMBED_URL = "http://localhost:8104";
+const EMBED_BATCH_SIZE = 8;
+const DEFAULT_EMBED_URL = "http://localhost:8104";
 
-export type EmbedItem = { text: string } | { image: Uint8Array };
+type EmbedItem = { text: string } | { image: Uint8Array };
 
 interface EmbedPart {
   type: "text" | "image_url";
@@ -13,7 +13,7 @@ interface EmbedReply {
   data: { index: number; embedding: number[] }[];
 }
 
-export function embedUrl(): string {
+function embedUrl(): string {
   return process.env.EMBED_URL ?? DEFAULT_EMBED_URL;
 }
 

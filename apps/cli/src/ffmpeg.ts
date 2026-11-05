@@ -1,8 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-export const SCENE_THRESHOLD = 0.3;
-export const FRAME_CONCURRENCY = 6;
+const SCENE_THRESHOLD = 0.3;
+const FRAME_CONCURRENCY = 6;
 const PTS_PATTERN = /pts_time:([0-9]+(?:\.[0-9]+)?)/g;
 const TIME_PRECISION = 1000;
 
@@ -11,7 +11,7 @@ export interface Shot {
   end: number;
 }
 
-export interface RunResult {
+interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
@@ -81,7 +81,7 @@ export async function detectCuts(video: string): Promise<number[]> {
   return parseCutTimes(stderr);
 }
 
-export function parseCutTimes(log: string): number[] {
+function parseCutTimes(log: string): number[] {
   const times: number[] = [];
   for (const match of log.matchAll(PTS_PATTERN)) {
     const raw = match[1];

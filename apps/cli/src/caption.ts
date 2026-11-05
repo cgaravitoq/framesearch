@@ -1,6 +1,6 @@
-export const CAPTION_MODEL = "google/gemma-4-26b-a4b-it";
+const CAPTION_MODEL = "google/gemma-4-26b-a4b-it";
 export const CAPTION_PREFIX = "title: none | text: ";
-export const CAPTION_CONCURRENCY = 8;
+const CAPTION_CONCURRENCY = 8;
 export const MAX_COST_USD = 0.1;
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -21,25 +21,25 @@ const PROMPT = `Describe this film frame for a search index. Reply with only a J
  "time_of_day": "day" | "night" | "unknown",
  "setting": "interior" | "exterior" | "unknown"}`;
 
-export interface Caption {
+interface Caption {
   caption: string;
   tags: string[];
 }
 
-export interface CaptionOptions {
+interface CaptionOptions {
   apiKey: string;
   budgetUsd: number;
   concurrency?: number;
   ask?: (image: Uint8Array) => Promise<CaptionReply>;
 }
 
-export interface CaptionReport {
+interface CaptionReport {
   captions: (Caption | null)[];
   costUsd: number;
   failed: number;
 }
 
-export interface CaptionReply {
+interface CaptionReply {
   content: string;
   cost: number;
 }
@@ -49,7 +49,7 @@ interface ChatBody {
   usage?: { cost?: number };
 }
 
-export function parseCaption(raw: string): Caption | null {
+function parseCaption(raw: string): Caption | null {
   const object = raw.match(/\{[\s\S]*\}/)?.[0];
   if (object === undefined) return null;
   let parsed: unknown;
