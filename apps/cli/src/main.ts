@@ -1,14 +1,42 @@
+import { join } from "node:path";
 import { bucketName, databaseName } from "./cloud.ts";
 import { DUPLICATE_THRESHOLD } from "./dedup.ts";
+import {
+  belowThresholds,
+  type EvalReport,
+  evaluate,
+  parseCases,
+  type Thresholds,
+} from "./eval.ts";
 import { indexFilm } from "./indexer.ts";
 import { publishFilm } from "./publish.ts";
 import { unpublishFilm } from "./unpublish.ts";
-import { parseTitle, parseVideoPath, unwrap } from "./validate.ts";
+import {
+  parseBaseUrl,
+  parseTitle,
+  parseVideoPath,
+  unwrap,
+} from "./validate.ts";
+
+const DEFAULT_EVAL_FILE = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "evals",
+  "queries.json",
+);
 
 const USAGE = `usage:
   framesearch index <video> --title "<title>"
   framesearch publish <film>
   framesearch unpublish <film>
+  framesearch eval --base-url <url> [file] [thresholds]
+
+thresholds:
+  --min-hit-at1 <count>    fail below this many queries answered first
+  --min-hit-at5 <count>    fail below this many queries answered in the top five
+  --min-mrr <ratio>        fail below this MRR@10
 
 env:
   FRAMESEARCH_DATA         local store (default ~/.local/share/framesearch-public)
@@ -108,7 +136,93 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "eval") {
+    const { baseUrl, file, thresholds } = parseEvalArgs(args);
+    const cases = parseCases(JSON.parse(await Bun.file(file).text()));
+    const report = await evaluate(baseUrl, cases);
+    console.log(renderEval(report, file, baseUrl));
+    const failures = belowThresholds(report, thresholds);
+    if (failures.length > 0) {
+      console.error(failures.join("\n"));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   throw new Error(`unknown command ${command}\n\n${USAGE}`);
+}
+
+function parseEvalArgs(args: readonly string[]): {
+  baseUrl: string;
+  file: string;
+  thresholds: Thresholds;
+} {
+  let baseUrl: string | undefined;
+  let file: string | undefined;
+  const thresholds: Thresholds = {};
+  for (let at = 0; at < args.length; at += 1) {
+    const arg = args[at] ?? "";
+    const split = arg.indexOf("=");
+    const name = split === -1 ? arg : arg.slice(0, split);
+    const inline = split === -1 ? undefined : arg.slice(split + 1);
+    if (name.startsWith("--")) {
+      const raw = inline ?? args[at + 1];
+      if (raw === undefined) throw new Error(`${name} needs a value`);
+      if (inline === undefined) at += 1;
+      if (name === "--base-url") {
+        baseUrl = raw;
+        continue;
+      }
+      if (name === "--min-hit-at1") {
+        thresholds.hitAt1 = threshold(name, raw);
+        continue;
+      }
+      if (name === "--min-hit-at5") {
+        thresholds.hitAt5 = threshold(name, raw);
+        continue;
+      }
+      if (name === "--min-mrr") {
+        thresholds.mrrAt10 = threshold(name, raw);
+        continue;
+      }
+      throw new Error(`unknown option ${name}`);
+    }
+    if (file !== undefined) throw new Error(`unexpected argument ${arg}`);
+    file = arg;
+  }
+  if (baseUrl === undefined) throw new Error("missing --base-url");
+  return {
+    baseUrl: unwrap(parseBaseUrl(baseUrl)),
+    file: file ?? DEFAULT_EVAL_FILE,
+    thresholds,
+  };
+}
+
+function threshold(name: string, raw: string): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} needs a non-negative number, not ${raw}`);
+  }
+  return value;
+}
+
+function renderEval(report: EvalReport, file: string, baseUrl: string): string {
+  const lines = [
+    `${report.total} queries from ${file} against ${baseUrl}`,
+    `  hit@1   ${`${report.hitAt1}/${report.total}`.padStart(7)}  ${share(report.hitAt1, report.total)}`,
+    `  hit@5   ${`${report.hitAt5}/${report.total}`.padStart(7)}  ${share(report.hitAt5, report.total)}`,
+    `  MRR@10  ${report.mrrAt10.toFixed(3).padStart(7)}`,
+    `  search  p50 ${report.latency.p50.toFixed(0)} ms  p95 ${report.latency.p95.toFixed(0)} ms`,
+  ];
+  if (report.misses.length > 0) {
+    lines.push("misses");
+    for (const miss of report.misses) lines.push(`  ${miss}`);
+  }
+  return lines.join("\n");
+}
+
+function share(count: number, total: number): string {
+  return total === 0 ? "0.000" : (count / total).toFixed(3);
 }
 
 try {
