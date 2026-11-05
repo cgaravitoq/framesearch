@@ -28,7 +28,7 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   if (!response.ok) {
     throw new ApiError(
       errorMessage(body) ?? `the server answered ${response.status}`,
-      response.headers.get("retry-after") !== null,
+      response.status === 503 && response.headers.get("retry-after") !== null,
     );
   }
   return body as T;
