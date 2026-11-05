@@ -1,4 +1,4 @@
-import type { Hit, SearchReply } from "@framesearch/schema";
+import type { Hit, SearchReply, SimilarReply } from "@framesearch/schema";
 import {
   keepPreviousData,
   useQuery,
@@ -16,7 +16,6 @@ import {
   getFilms,
   logClick,
   logSearch,
-  type SimilarReply,
   searchShots,
   similarShots,
 } from "./lib/api";
@@ -123,8 +122,11 @@ export function SearchPage() {
   const pickShot = (shot: Hit) => {
     setHero(shot);
     if (similarFrom > 0 || search.data === undefined) return;
+    const at = search.data.results.findIndex(
+      (entry) => entry.shotId === shot.shotId,
+    );
     void settleSearchLog(search.data).then((id) => {
-      if (id !== null) void logClick(id, shot.shotId);
+      if (id !== null) void logClick(id, shot.shotId, at < 0 ? null : at + 1);
     });
   };
 
