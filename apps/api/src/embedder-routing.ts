@@ -9,6 +9,7 @@ export const EMBEDDER_INSTANCES = [
 
 export const BUSY_HEADER = "x-embedder-busy";
 export const BUSY_STATUS = 503;
+export const CONTAINER_MS_HEADER = "x-embedder-ms";
 
 const EMBEDDINGS_URL = "http://embedder/v1/embeddings";
 const RETRY_STATUSES: ReadonlySet<number> = new Set([500, 502]);
@@ -20,6 +21,13 @@ export interface EmbedderReply {
   status: number;
   headers: { get(name: string): string | null };
   json(): Promise<unknown>;
+}
+
+export interface EmbedTrace {
+  attempts: string[];
+  busy: number;
+  containerMs: number;
+  ms: number;
 }
 
 export function busyReply(): Response {
@@ -36,10 +44,12 @@ export function isBusy(reply: EmbedderReply): boolean {
 export async function postEmbeddings(
   namespace: DurableObjectNamespace<EmbedderContainer>,
   input: readonly string[],
+  trace?: EmbedTrace,
 ): Promise<EmbedderReply> {
   let retries = 1;
   const last = EMBEDDER_INSTANCES.length - 1;
   for (const [index, name] of EMBEDDER_INSTANCES.entries()) {
+    trace?.attempts.push(name);
     let reply: EmbedderReply;
     try {
       reply = await postTo(namespace, name, input);
@@ -48,14 +58,18 @@ export async function postEmbeddings(
       retries -= 1;
       continue;
     }
-    if (isBusy(reply)) continue;
+    addContainerMs(trace, reply);
+    if (isBusy(reply)) {
+      if (trace !== undefined) trace.busy += 1;
+      continue;
+    }
     if (RETRY_STATUSES.has(reply.status) && retries > 0 && index < last) {
       retries -= 1;
       continue;
     }
     return reply;
   }
-  return await waitForPrimary(namespace, input);
+  return await waitForPrimary(namespace, input, trace);
 }
 
 export function warmPrimary(
@@ -68,15 +82,39 @@ export function warmPrimary(
 async function waitForPrimary(
   namespace: DurableObjectNamespace<EmbedderContainer>,
   input: readonly string[],
+  trace?: EmbedTrace,
 ): Promise<EmbedderReply> {
   const deadline = Date.now() + WAIT_BUDGET_MS;
   await sleep(WAIT_INTERVAL_MS);
-  let reply = await postTo(namespace, EMBEDDER_INSTANCES[0], input);
+  let reply = await pollPrimary(namespace, input, trace);
   while (isBusy(reply) && Date.now() < deadline) {
     await sleep(WAIT_INTERVAL_MS);
-    reply = await postTo(namespace, EMBEDDER_INSTANCES[0], input);
+    reply = await pollPrimary(namespace, input, trace);
   }
   return reply;
+}
+
+async function pollPrimary(
+  namespace: DurableObjectNamespace<EmbedderContainer>,
+  input: readonly string[],
+  trace: EmbedTrace | undefined,
+): Promise<EmbedderReply> {
+  trace?.attempts.push(EMBEDDER_INSTANCES[0]);
+  const reply = await postTo(namespace, EMBEDDER_INSTANCES[0], input);
+  addContainerMs(trace, reply);
+  if (trace !== undefined && isBusy(reply)) trace.busy += 1;
+  return reply;
+}
+
+function addContainerMs(
+  trace: EmbedTrace | undefined,
+  reply: EmbedderReply,
+): void {
+  if (trace === undefined) return;
+  const raw = reply.headers.get(CONTAINER_MS_HEADER);
+  if (raw === null) return;
+  const ms = Number(raw);
+  if (Number.isFinite(ms)) trace.containerMs += ms;
 }
 
 function postTo(

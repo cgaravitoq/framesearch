@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
-import { EMBEDDER_INSTANCES, postEmbeddings } from "../src/embedder-routing.ts";
+import {
+  EMBEDDER_INSTANCES,
+  type EmbedTrace,
+  postEmbeddings,
+} from "../src/embedder-routing.ts";
 import {
   EmbedderBusy,
   type Embeddings,
@@ -213,6 +217,50 @@ describe("container instances", () => {
     ]);
     embedder.release();
     await Promise.all(pending);
+  });
+});
+
+describe("embed trace", () => {
+  const trace = (): EmbedTrace => ({
+    attempts: [],
+    busy: 0,
+    containerMs: 0,
+    ms: 0,
+  });
+
+  test("names each instance it tried and counts the busy ones", async () => {
+    const seen = trace();
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? "busy" : 200),
+    });
+    await postEmbeddings(embedder.namespace, ["a"], seen);
+    expect(seen.attempts).toEqual(["primary", "overflow-1"]);
+    expect(seen.busy).toBe(1);
+  });
+
+  test("adds up the milliseconds the instances report for the container", async () => {
+    const seen = trace();
+    const embedder = fakeEmbedder({ containerMs: 37 });
+    await postEmbeddings(embedder.namespace, ["a"], seen);
+    expect(seen.containerMs).toBe(37);
+  });
+
+  test("counts the busy polls while it waits on the shared instance", async () => {
+    const seen = trace();
+    const embedder = fakeEmbedder({
+      answer: (instance, before) =>
+        instance === "primary" && before > 2 ? 200 : "busy",
+    });
+    await postEmbeddings(embedder.namespace, ["a"], seen);
+    expect(seen.attempts).toEqual([
+      "primary",
+      "overflow-1",
+      "overflow-2",
+      "primary",
+      "primary",
+      "primary",
+    ]);
+    expect(seen.busy).toBe(5);
   });
 });
 

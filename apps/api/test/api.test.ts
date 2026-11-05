@@ -222,6 +222,9 @@ describe("search cache", () => {
       );
       expect(second.status).toBe(200);
       expect(second.headers.get("x-cache")).toBe("hit");
+      const hitTiming = second.headers.get("server-timing") ?? "";
+      expect(wellFormed(hitTiming)).toBe(true);
+      expect(hitTiming.toLowerCase()).not.toContain("fire");
       const reply = (await second.json()) as SearchReply;
       expect(reply.query).toBe("FIRE");
       expect(reply.results.map((hit) => hit.shotId)).toEqual([1]);
@@ -295,6 +298,9 @@ describe("search cache", () => {
         fixture.env,
       );
       expect(response.status).toBe(502);
+      expect(wellFormed(response.headers.get("server-timing") ?? "")).toBe(
+        true,
+      );
       expect(await response.text()).toBe(
         JSON.stringify({ error: "Search is temporarily unavailable" }),
       );
@@ -402,6 +408,10 @@ describe("search availability", () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("2");
+    const busyTiming = response.headers.get("server-timing") ?? "";
+    expect(wellFormed(busyTiming)).toBe(true);
+    expect(busyTiming).toContain("busy=");
+    expect(busyTiming).not.toContain("zombie");
     expect(await response.json()).toEqual({
       error: "Search is busy, try again in a moment",
     });
@@ -476,6 +486,77 @@ describe("vectors snapshot", () => {
     } finally {
       embeddings.restore();
     }
+  });
+});
+
+describe("server timing", () => {
+  test("splits a search into reads, embedding and total without the query", async () => {
+    const fixture = searchFixture("white-zombie", 1);
+    const embedder = fakeEmbedder({ containerMs: 12, vector: [1, 0] });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await createApp().request(
+      "/api/search?q=a%20cellar%20full%20of%20zombies",
+      {},
+      env,
+    );
+    expect(response.status).toBe(200);
+    const header = response.headers.get("server-timing") ?? "";
+    expect(wellFormed(header)).toBe(true);
+    expect(phases(header).map((phase) => phase.name)).toEqual([
+      "d1",
+      "embed",
+      "total",
+    ]);
+    expect(header).toContain('desc="primary busy=0 container=12"');
+    expect(header).not.toContain("cellar");
+  });
+
+  test("names every instance it tried and how many were busy", async () => {
+    const fixture = searchFixture("white-zombie", 1);
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? "busy" : 200),
+      vector: [1, 0],
+    });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await createApp().request(
+      "/api/search?q=a%20zombie%20in%20the%20cellar%20at%20dusk",
+      {},
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("server-timing") ?? "").toContain(
+      'desc="primary>overflow-1 busy=1',
+    );
+  });
+
+  test("splits a similar reply into reads and total", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 4);
+    const response = await createApp().request(
+      "/api/similar?id=1",
+      {},
+      fixture.env,
+    );
+    expect(response.status).toBe(200);
+    const header = response.headers.get("server-timing") ?? "";
+    expect(wellFormed(header)).toBe(true);
+    expect(phases(header).map((phase) => phase.name)).toEqual([
+      "d1",
+      "embed",
+      "total",
+    ]);
+    expect(header).toContain('embed;dur=0;desc="none"');
   });
 });
 
@@ -574,6 +655,9 @@ describe("similar", () => {
         fakeEnv({ DB: db, FRAMES: frames }),
       );
       expect(response.status).toBe(502);
+      expect(wellFormed(response.headers.get("server-timing") ?? "")).toBe(
+        true,
+      );
       expect(await response.text()).toBe(
         JSON.stringify({ error: "Something went wrong" }),
       );
@@ -917,6 +1001,31 @@ function searchFixture(film: string, version: number): SearchFixture {
     vectorsReads: () =>
       frames.keys.filter((key) => key.startsWith("vectors/")).length,
   };
+}
+
+interface Phase {
+  duration: number;
+  name: string;
+}
+
+function phases(header: string): Phase[] {
+  return header.split(",").map((entry) => {
+    const [name = "", ...params] = entry.split(";");
+    const dur = params.find((param) => param.startsWith("dur=")) ?? "dur=";
+    return { duration: Number(dur.slice("dur=".length)), name };
+  });
+}
+
+function wellFormed(header: string): boolean {
+  const entries = header.split(",");
+  return (
+    entries.length > 0 &&
+    entries.every((entry) =>
+      /^[a-z][a-z0-9_-]*;dur=[0-9]+(?:\.[0-9]+)?(?:;desc="[^"]*")?$/.test(
+        entry,
+      ),
+    )
+  );
 }
 
 function stubEmbeddings(): { calls: () => number; restore: () => void } {
