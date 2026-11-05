@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { publishedFramesSql } from "./sql.ts";
+import { publishedFramesSql, publishedVectorsSql } from "./sql.ts";
 
 const WRANGLER = ["npx", "-y", "wrangler@4"];
 const OUTPUT_TAIL = 400;
@@ -19,10 +19,16 @@ export interface Cloud {
   deleteObject(key: string): Promise<void>;
   executeSql(sql: string): Promise<void>;
   publishedFrames(film: string): Promise<number[]>;
+  publishedVectors(film: string): Promise<PublishedVectors>;
 }
 
-interface D1Reply {
-  results: { idx: number }[];
+export interface PublishedVectors {
+  current: string | null;
+  prior: string | null;
+}
+
+interface D1Reply<Row> {
+  results: Row[];
 }
 
 export function bucketName(): string {
@@ -122,8 +128,25 @@ export async function publishedFrames(film: string): Promise<number[]> {
     "--command",
     publishedFramesSql(film),
   ]);
-  const [reply] = JSON.parse(stdout) as D1Reply[];
+  const [reply] = JSON.parse(stdout) as D1Reply<{ idx: number }>[];
   return reply?.results.map((row) => row.idx) ?? [];
+}
+
+export async function publishedVectors(
+  film: string,
+): Promise<PublishedVectors> {
+  const stdout = await wrangler([
+    "d1",
+    "execute",
+    databaseName(),
+    "--remote",
+    "--json",
+    "--command",
+    publishedVectorsSql(film),
+  ]);
+  const [reply] = JSON.parse(stdout) as D1Reply<PublishedVectors>[];
+  const row = reply?.results[0];
+  return { current: row?.current ?? null, prior: row?.prior ?? null };
 }
 
 export const wranglerCloud: Cloud = {
@@ -131,6 +154,7 @@ export const wranglerCloud: Cloud = {
   deleteObject,
   executeSql,
   publishedFrames,
+  publishedVectors,
 };
 
 export async function mapBounded<T>(

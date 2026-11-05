@@ -3,8 +3,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DDL, encodeVectors, type FilmVectors } from "@framesearch/schema";
-import type { Cloud } from "./cloud.ts";
+import {
+  DDL,
+  encodeVectors,
+  type FilmVectors,
+  vectorsKey,
+} from "@framesearch/schema";
+import type { Cloud, PublishedVectors } from "./cloud.ts";
 import { frameFile, vectorsFile } from "./paths.ts";
 import { publishFilm } from "./publish.ts";
 import { createStore, replaceFilm, type StoredShot } from "./store.ts";
@@ -76,6 +81,7 @@ function writeFrames(dir: string, shots: readonly StoredShot[]): void {
 function fakeCloud(
   published: number[],
   failAt?: "rows" | "stale",
+  live: PublishedVectors = { current: null, prior: null },
 ): { cloud: Cloud; calls: string[]; sql: string[] } {
   const calls: string[] = [];
   const sql: string[] = [];
@@ -97,12 +103,52 @@ function fakeCloud(
       );
     },
     publishedFrames: async () => published,
+    publishedVectors: async () => live,
   };
   return { calls, cloud, sql };
 }
 
 function frameKeys(shots: readonly StoredShot[]): string {
   return shots.map((shot) => `frames/${SLUG}/${shot.idx}.jpg`).join(",");
+}
+
+const PUBLISHED_KEY = new RegExp(`^vectors/${SLUG}-[0-9a-f-]{36}\\.bin$`);
+
+function withStamps(calls: readonly string[]): string[] {
+  return calls.map((call) =>
+    call.replace(
+      new RegExp(`${SLUG}-[0-9a-f-]{36}\\.bin`, "g"),
+      `${SLUG}-<stamp>.bin`,
+    ),
+  );
+}
+
+interface PublishedSeed {
+  prior: string | null;
+  vectors: string | null;
+  version: number;
+}
+
+function publishedRow(
+  statements: string,
+  seed: PublishedSeed = { prior: null, vectors: null, version: 4 },
+): PublishedSeed | null {
+  const db = new Database(":memory:");
+  for (const statement of DDL) db.exec(statement);
+  db.prepare(
+    `INSERT INTO published (film, version, vectors_key, prior_vectors_key) VALUES ('${SLUG}', ?1, ?2, ?3)`,
+  ).run(seed.version, seed.vectors, seed.prior);
+  db.exec(statements);
+  const row = db
+    .query<
+      { prior: string | null; vectors: string | null; version: number },
+      []
+    >(
+      "SELECT vectors_key AS vectors, prior_vectors_key AS prior, version FROM published",
+    )
+    .get();
+  db.close();
+  return row;
 }
 
 describe("publish", () => {
@@ -112,13 +158,74 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([]);
-    await publishFilm(SLUG, { dataDir: dir, cloud });
-    expect(calls).toEqual([
+    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(report.vectorsKey).toMatch(PUBLISHED_KEY);
+    expect(withStamps(calls)).toEqual([
       `put ${frameKeys(shots)}`,
       "rows",
-      `put vectors/${SLUG}.bin`,
+      `put vectors/${SLUG}-<stamp>.bin`,
       "version",
     ]);
+  });
+
+  test("records the uploaded key beside the version in a single statement", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, sql } = fakeCloud([]);
+    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const writes = sql.filter((statements) =>
+      statements.includes("INSERT INTO published"),
+    );
+    expect(writes.length).toBe(1);
+    const statements = statementsOf(writes[0] ?? "");
+    expect(statements.length).toBe(1);
+    const row = publishedRow(writes[0] ?? "");
+    expect(row?.vectors).toBe(report.vectorsKey);
+  });
+
+  test("keeps the vectors file the previous publish wrote and deletes the older one", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const previous = vectorsKey(SLUG, "previous-publish");
+    const older = vectorsKey(SLUG, "older-publish");
+    const { cloud, calls, sql } = fakeCloud([], undefined, {
+      current: previous,
+      prior: older,
+    });
+    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(calls).toContain(`delete ${older}`);
+    expect(calls).not.toContain(`delete ${previous}`);
+    expect(calls).not.toContain(`delete ${report.vectorsKey}`);
+    const writes = sql.filter((statements) =>
+      statements.includes("INSERT INTO published"),
+    );
+    const row = publishedRow(writes[0] ?? "", {
+      prior: older,
+      vectors: previous,
+      version: 4,
+    });
+    expect(row?.vectors).toBe(report.vectorsKey);
+    expect(row?.prior).toBe(previous);
+  });
+
+  test("keeps the plain file of a film published before the keys as the previous one", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls, sql } = fakeCloud([]);
+    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(calls).not.toContain(`delete ${vectorsKey(SLUG)}`);
+    const writes = sql.filter((statements) =>
+      statements.includes("INSERT INTO published"),
+    );
+    const row = publishedRow(writes[0] ?? "");
+    expect(row?.vectors).toBe(report.vectorsKey);
+    expect(row?.prior).toBe(vectorsKey(SLUG));
   });
 
   test("keeps the published version rising on a republish of the same rows", async () => {
@@ -181,10 +288,10 @@ describe("publish", () => {
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4]);
     await publishFilm(SLUG, { dataDir: dir, cloud });
-    expect(calls).toEqual([
+    expect(withStamps(calls)).toEqual([
       `put ${frameKeys(shots)}`,
       "rows",
-      `put vectors/${SLUG}.bin`,
+      `put vectors/${SLUG}-<stamp>.bin`,
       "version",
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/4.jpg`,
@@ -197,13 +304,14 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4], "stale");
-    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
-      /is published as vectors\/night-of-the-living-dead.bin, but 2 stale frames stay in R2: R2 refused the delete; publish it again/,
+    const failure = publishFilm(SLUG, { dataDir: dir, cloud });
+    await expect(failure).rejects.toThrow(
+      /is published as vectors\/night-of-the-living-dead-[0-9a-f-]{36}.bin, but 2 stale frames stay in R2: R2 refused the delete; publish it again/,
     );
-    expect(calls).toEqual([
+    expect(withStamps(calls)).toEqual([
       `put ${frameKeys(shots)}`,
       "rows",
-      `put vectors/${SLUG}.bin`,
+      `put vectors/${SLUG}-<stamp>.bin`,
       "version",
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/4.jpg`,
@@ -285,20 +393,34 @@ describe("publish", () => {
 });
 
 describe("unpublish", () => {
-  test("deletes the published version first, then the rows, the vectors and the frames", async () => {
-    const { cloud, calls, sql } = fakeCloud([0, 1, 2]);
-    await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
+  test("deletes the row first, then every vectors file, then the frames", async () => {
+    const current = vectorsKey(SLUG, "current-publish");
+    const prior = vectorsKey(SLUG, "prior-publish");
+    const { cloud, calls, sql } = fakeCloud([0, 1, 2], undefined, {
+      current,
+      prior,
+    });
+    const report = await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
     expect(calls).toEqual([
-      `delete vectors/${SLUG}.bin`,
       "rows",
+      `delete vectors/${SLUG}.bin`,
+      `delete ${current}`,
+      `delete ${prior}`,
       `delete frames/${SLUG}/0.jpg`,
       `delete frames/${SLUG}/1.jpg`,
       `delete frames/${SLUG}/2.jpg`,
     ]);
+    expect(report.vectorsKeys).toEqual([`vectors/${SLUG}.bin`, current, prior]);
     const statements = statementsOf(sql[0] ?? "");
     expect(statements[DDL.length]).toBe(
       `DELETE FROM published WHERE film = '${SLUG}'`,
     );
+  });
+
+  test("deletes the plain file alone when the row named no other", async () => {
+    const { cloud, calls } = fakeCloud([]);
+    await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
+    expect(calls).toEqual(["rows", `delete vectors/${SLUG}.bin`]);
   });
 });
 

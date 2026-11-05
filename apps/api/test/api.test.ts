@@ -408,6 +408,77 @@ describe("search availability", () => {
   });
 });
 
+describe("vectors snapshot", () => {
+  test("reads the vectors file its own published row names", async () => {
+    const film = "dawn-of-the-dead";
+    const fixture = searchFixture(film, 4);
+    fixture.setVectorsKey(vectorsKey(film, FIRST_PUBLISH));
+    const embeddings = stubEmbeddings();
+    try {
+      const response = await createApp().request(
+        "/api/search?q=graveyard&k=1",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(200);
+      const reply = (await response.json()) as SearchReply;
+      expect(reply.results.map((hit) => hit.shotId)).toEqual([2]);
+      expect(fixture.vectorsObjects()).toEqual([
+        vectorsKey(film, FIRST_PUBLISH),
+      ]);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("falls back to the plain file when the row names none", async () => {
+    const film = "day-of-the-dead";
+    const fixture = searchFixture(film, 2);
+    const embeddings = stubEmbeddings();
+    try {
+      const response = await createApp().request(
+        "/api/search?q=mall&k=1",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(200);
+      const reply = (await response.json()) as SearchReply;
+      expect(reply.results.map((hit) => hit.shotId)).toEqual([1]);
+      expect(fixture.vectorsObjects()).toEqual([vectorsKey(film)]);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("reloads the vectors when the key moves and the version stands", async () => {
+    const film = "land-of-the-dead";
+    const fixture = searchFixture(film, 9);
+    fixture.setVectorsKey(vectorsKey(film, SECOND_PUBLISH));
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=bunker&k=1",
+        {},
+        fixture.env,
+      );
+      const firstReply = (await first.json()) as SearchReply;
+      expect(firstReply.results.map((hit) => hit.shotId)).toEqual([1]);
+      fixture.setVectorsKey(vectorsKey(film, FIRST_PUBLISH));
+      const second = await createApp().request(
+        "/api/search?q=bunker&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.headers.get("x-cache")).toBe("miss");
+      const secondReply = (await second.json()) as SearchReply;
+      expect(secondReply.results.map((hit) => hit.shotId)).toEqual([2]);
+      expect(fixture.vectorsReads()).toBe(2);
+    } finally {
+      embeddings.restore();
+    }
+  });
+});
+
 describe("server timing", () => {
   test("splits a search into reads, embedding and total without the query", async () => {
     const fixture = searchFixture("white-zombie", 1);
@@ -828,11 +899,17 @@ interface SearchFixture {
   republishVectors: () => void;
   sessions: () => FakeSession[];
   setVersion: (version: number) => void;
+  setVectorsKey: (key: string | null) => void;
+  vectorsObjects: () => string[];
   vectorsReads: () => number;
 }
 
+const FIRST_PUBLISH = "publish-1";
+const SECOND_PUBLISH = "publish-2";
+
 function searchFixture(film: string, version: number): SearchFixture {
   let current = version;
+  let currentKey: string | null = null;
   const shots = [
     {
       caption: null,
@@ -859,7 +936,9 @@ function searchFixture(film: string, version: number): SearchFixture {
   ];
   const { db, queries, sessions, statements } = fakeDb({
     rows: (sql) => {
-      if (sql.includes(PUBLISHED)) return [{ slug: film, version: current }];
+      if (sql.includes(PUBLISHED)) {
+        return [{ slug: film, vectorsKey: currentKey, version: current }];
+      }
       if (sql.includes("bm25")) return [];
       return shots;
     },
@@ -872,7 +951,18 @@ function searchFixture(film: string, version: number): SearchFixture {
       { shotId: 2, values: Int8Array.from([0, 127]) },
     ],
   });
-  const frames = fakeR2({ [vectorsKey(film)]: vectors });
+  const frames = fakeR2({
+    [vectorsKey(film)]: vectors,
+    [vectorsKey(film, FIRST_PUBLISH)]: encodeVectors({
+      captions: [],
+      dim: 2,
+      frames: [
+        { shotId: 1, values: Int8Array.from([0, 127]) },
+        { shotId: 2, values: Int8Array.from([127, 0]) },
+      ],
+    }),
+    [vectorsKey(film, SECOND_PUBLISH)]: vectors,
+  });
   return {
     env: fakeEnv({
       DB: db,
@@ -890,8 +980,13 @@ function searchFixture(film: string, version: number): SearchFixture {
     setVersion: (next) => {
       current = next;
     },
+    setVectorsKey: (key) => {
+      currentKey = key;
+    },
+    vectorsObjects: () =>
+      frames.keys.filter((key) => key.startsWith("vectors/")),
     vectorsReads: () =>
-      frames.keys.filter((key) => key === vectorsKey(film)).length,
+      frames.keys.filter((key) => key.startsWith("vectors/")).length,
   };
 }
 
