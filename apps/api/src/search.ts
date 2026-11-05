@@ -8,7 +8,7 @@ import {
 import { type Embeddings, embedQuery } from "./embeddings.ts";
 import type { Env } from "./env.ts";
 import { ftsMatch } from "./fts.ts";
-import { loadVectors, type Published } from "./vectors.ts";
+import { loadVectors, type Published, type ReadDatabase } from "./vectors.ts";
 
 const D1_PARAMETER_LIMIT = 100;
 
@@ -44,6 +44,7 @@ export interface SearchInput {
 
 export async function runSearch(
   env: Env,
+  db: ReadDatabase,
   embeddings: Embeddings,
   published: Published,
   input: SearchInput,
@@ -51,7 +52,7 @@ export async function runSearch(
   const [vector, vectors, keyword] = await Promise.all([
     embedQuery(embeddings, input.query),
     loadVectors(env, published),
-    keywordHits(env, input.query, input.film),
+    keywordHits(db, input.query, input.film),
   ]);
   const lists: SignalHits[] = [
     {
@@ -68,12 +69,13 @@ export async function runSearch(
     },
     { hits: keyword, signal: "bm25" },
   ];
-  const results = await fuseToHits(env, lists, input.k);
+  const results = await fuseToHits(db, lists, input.k);
   return { film: input.film, query: input.query, results };
 }
 
 export async function runSimilar(
   env: Env,
+  db: ReadDatabase,
   published: Published,
   shotId: number,
   k: number,
@@ -83,7 +85,7 @@ export async function runSimilar(
   if (film === undefined) return [];
   const source = vectors.store.vector("frame", shotId);
   if (source === undefined) return [];
-  const sameShot = await sameShotIds(env, shotId);
+  const sameShot = await sameShotIds(db, shotId);
   const ranked = vectors.store
     .rank(toQuery(source), {
       exclude: shotId,
@@ -92,11 +94,15 @@ export async function runSimilar(
     })
     .filter((hit) => !sameShot.has(hit.shotId))
     .slice(0, MAX_K);
-  return await fuseToHits(env, [{ signal: "frame", hits: ranked }], k);
+  return await fuseToHits(db, [{ signal: "frame", hits: ranked }], k);
 }
 
-async function sameShotIds(env: Env, shotId: number): Promise<Set<number>> {
-  const { results } = await env.DB.prepare(SAME_SHOT_QUERY)
+async function sameShotIds(
+  db: ReadDatabase,
+  shotId: number,
+): Promise<Set<number>> {
+  const { results } = await db
+    .prepare(SAME_SHOT_QUERY)
     .bind(shotId)
     .all<{ id: number }>();
   return new Set(results.map((row) => row.id));
@@ -110,7 +116,7 @@ function rankOptions(
 }
 
 async function keywordHits(
-  env: Env,
+  db: ReadDatabase,
   query: string,
   film: string | null,
 ): Promise<RankedShot[]> {
@@ -118,15 +124,16 @@ async function keywordHits(
   if (match === "") return [];
   const { results } =
     film === null
-      ? await env.DB.prepare(KEYWORD_QUERY).bind(match, MAX_K).all<KeywordRow>()
-      : await env.DB.prepare(KEYWORD_QUERY_FILM)
+      ? await db.prepare(KEYWORD_QUERY).bind(match, MAX_K).all<KeywordRow>()
+      : await db
+          .prepare(KEYWORD_QUERY_FILM)
           .bind(match, film, MAX_K)
           .all<KeywordRow>();
   return results.map((row) => ({ score: -row.score, shotId: row.id }));
 }
 
 async function fuseToHits(
-  env: Env,
+  db: ReadDatabase,
   lists: SignalHits[],
   k: number,
 ): Promise<Hit[]> {
@@ -134,7 +141,7 @@ async function fuseToHits(
   for (const list of lists) {
     for (const hit of list.hits) ids.add(hit.shotId);
   }
-  const shots = await shotRows(env, [...ids]);
+  const shots = await shotRows(db, [...ids]);
   const group = (shotId: number): string => {
     const shot = shots.get(shotId);
     return shot === undefined
@@ -150,16 +157,17 @@ async function fuseToHits(
 }
 
 async function shotRows(
-  env: Env,
+  db: ReadDatabase,
   ids: readonly number[],
 ): Promise<Map<number, ShotRow>> {
   const shots = new Map<number, ShotRow>();
   for (let at = 0; at < ids.length; at += D1_PARAMETER_LIMIT) {
     const chunk = ids.slice(at, at + D1_PARAMETER_LIMIT);
     const placeholders = chunk.map((_, index) => `?${index + 1}`).join(", ");
-    const { results } = await env.DB.prepare(
-      `SELECT s.id, s.film, s.idx, s.time, s.shot_start AS shotStart, s.shot_end AS shotEnd, s.caption, s.tags, f.title FROM shots s JOIN films f ON f.slug = s.film WHERE s.id IN (${placeholders})`,
-    )
+    const { results } = await db
+      .prepare(
+        `SELECT s.id, s.film, s.idx, s.time, s.shot_start AS shotStart, s.shot_end AS shotEnd, s.caption, s.tags, f.title FROM shots s JOIN films f ON f.slug = s.film WHERE s.id IN (${placeholders})`,
+      )
       .bind(...chunk)
       .all<ShotRow>();
     for (const row of results) shots.set(row.id, row);

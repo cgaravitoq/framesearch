@@ -8,11 +8,13 @@ import {
 import { createApp } from "../src/app.ts";
 import type { Env } from "../src/env.ts";
 import {
+  type FakeSession,
   fakeDb,
   fakeEmbedder,
   fakeEnv,
   fakeR2,
   fakeRateLimit,
+  type Query,
   withFakeTime,
 } from "./support.ts";
 
@@ -406,6 +408,81 @@ describe("search availability", () => {
   });
 });
 
+describe("read sessions", () => {
+  test("reads a search through one session and never the primary", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 4);
+    const embeddings = stubEmbeddings();
+    try {
+      const response = await createApp().request(
+        "/api/search?q=cellar&k=2",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(200);
+      const [session] = fixture.sessions();
+      expect(fixture.sessions().length).toBe(1);
+      expect(session?.constraint).toBeUndefined();
+      expect(session?.statements.some((sql) => sql.includes(PUBLISHED))).toBe(
+        true,
+      );
+      expect(session?.queries.length).toBeGreaterThan(0);
+      expect(fixture.primaryQueries()).toEqual([]);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("reads the films list through one session", async () => {
+    const { db, sessions } = fakeDb();
+    const response = await createApp().request(
+      "/api/films",
+      {},
+      fakeEnv({ DB: db }),
+    );
+    expect(response.status).toBe(200);
+    expect(sessions.length).toBe(1);
+    expect(
+      sessions[0]?.statements.some((sql) => sql.includes("FROM films")),
+    ).toBe(true);
+  });
+
+  test("opens a new session for each request", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 4);
+    const embeddings = stubEmbeddings();
+    try {
+      await createApp().request("/api/search?q=fire&k=1", {}, fixture.env);
+      await createApp().request("/api/similar?id=1", {}, fixture.env);
+      const sessions = fixture.sessions();
+      expect(sessions.length).toBe(2);
+      expect(
+        sessions[1]?.statements.some((sql) => sql.includes(PUBLISHED)),
+      ).toBe(true);
+      expect(fixture.primaryQueries()).toEqual([]);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("writes the search log to the primary, outside any session", async () => {
+    const { db, queries, sessions } = fakeDb({ lastRowId: 7 });
+    const response = await createApp().request(
+      "/api/log/search",
+      {
+        body: JSON.stringify({ query: "fire" }),
+        headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+        method: "POST",
+      },
+      fakeEnv({ DB: db }),
+    );
+    expect(response.status).toBe(200);
+    expect(sessions).toEqual([]);
+    expect(
+      queries.filter((query) => query.sql.includes("INSERT INTO search_log"))
+        .length,
+    ).toBe(1);
+  });
+});
+
 describe("similar", () => {
   test("answers a failed vector load without its error", async () => {
     const { db } = fakeDb({
@@ -675,8 +752,10 @@ describe("log routes", () => {
 interface SearchFixture {
   env: Env;
   heads: () => string[];
+  primaryQueries: () => Query[];
   publishedReads: () => number;
   republishVectors: () => void;
+  sessions: () => FakeSession[];
   setVersion: (version: number) => void;
   vectorsReads: () => number;
 }
@@ -707,7 +786,7 @@ function searchFixture(film: string, version: number): SearchFixture {
       title: "Night of the Living Dead",
     },
   ];
-  const { db, statements } = fakeDb({
+  const { db, queries, sessions, statements } = fakeDb({
     rows: (sql) => {
       if (sql.includes(PUBLISHED)) return [{ slug: film, version: current }];
       if (sql.includes("bm25")) return [];
@@ -732,9 +811,11 @@ function searchFixture(film: string, version: number): SearchFixture {
       FRAMES: frames.bucket,
     }),
     heads: () => frames.heads,
+    primaryQueries: () => queries,
     publishedReads: () =>
       statements.filter((sql) => sql.includes(PUBLISHED)).length,
     republishVectors: () => frames.put(vectorsKey(film), vectors),
+    sessions: () => sessions,
     setVersion: (next) => {
       current = next;
     },

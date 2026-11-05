@@ -14,10 +14,17 @@ export interface Query {
   args: unknown[];
 }
 
+export interface FakeSession {
+  constraint: string | undefined;
+  queries: Query[];
+  statements: string[];
+}
+
 export interface FakeDb {
   db: D1Database;
   queries: Query[];
   statements: string[];
+  sessions: FakeSession[];
 }
 
 export interface FakeDbOptions {
@@ -28,6 +35,7 @@ export interface FakeDbOptions {
 export function fakeDb(options: FakeDbOptions = {}): FakeDb {
   const queries: Query[] = [];
   const statements: string[] = [];
+  const sessions: FakeSession[] = [];
   const rowsFor = (sql: string): unknown[] => {
     const rows = options.rows ?? [];
     return typeof rows === "function" ? rows(sql) : rows;
@@ -41,17 +49,36 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
       meta: { changes: 1, last_row_id: options.lastRowId ?? 1 },
     }),
   });
-  const prepare = (sql: string) => {
-    statements.push(sql);
+  const prepareFor = (sinks: string[][], bound: Query[]) => (sql: string) => {
+    for (const sink of sinks) sink.push(sql);
     return {
       ...prepared(rowsFor(sql)),
       bind(...args: unknown[]) {
-        queries.push({ sql, args });
+        bound.push({ sql, args });
         return prepared(rowsFor(sql));
       },
     };
   };
-  return { db: { prepare } as unknown as D1Database, queries, statements };
+  const db = {
+    prepare: prepareFor([statements], queries),
+    withSession(constraint?: string) {
+      const session: FakeSession = {
+        constraint,
+        queries: [],
+        statements: [],
+      };
+      sessions.push(session);
+      return {
+        prepare: prepareFor([statements, session.statements], session.queries),
+      };
+    },
+  };
+  return {
+    db: db as unknown as D1Database,
+    queries,
+    sessions,
+    statements,
+  };
 }
 
 export interface FakeR2 {

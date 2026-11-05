@@ -43,9 +43,10 @@ export function createApp(): Hono<{ Bindings: Env }> {
   });
 
   app.get("/api/films", async (c) => {
-    const { results } = await c.env.DB.prepare(
-      "SELECT slug, title, duration FROM films ORDER BY title",
-    ).all<Film>();
+    const db = c.env.DB.withSession();
+    const { results } = await db
+      .prepare("SELECT slug, title, duration FROM films ORDER BY title")
+      .all<Film>();
     const reply: FilmsReply = { films: results };
     return json(reply);
   });
@@ -86,7 +87,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
       console.error(MISSING_EMBEDDINGS);
       return failure(UNAVAILABLE, 503);
     }
-    const published = await publishedFilms(c.env);
+    const db = c.env.DB.withSession();
+    const published = await publishedFilms(db);
     const key = cacheKey(query.value, film.value, k.value);
     const cached = readCache(key, published.signature);
     if (cached !== null) {
@@ -95,7 +97,7 @@ export function createApp(): Hono<{ Bindings: Env }> {
     let results: Hit[];
     try {
       results = (
-        await runSearch(c.env, embeddings, published, {
+        await runSearch(c.env, db, embeddings, published, {
           film: film.value,
           k: k.value,
           query: query.value,
@@ -119,9 +121,10 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!id.ok) return failure(id.error, 400);
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
-    const published = await publishedFilms(c.env);
+    const db = c.env.DB.withSession();
+    const published = await publishedFilms(db);
     try {
-      const results = await runSimilar(c.env, published, id.value, k.value);
+      const results = await runSimilar(c.env, db, published, id.value, k.value);
       const reply: SimilarReply = { results, shotId: id.value };
       return json(reply);
     } catch (error) {
