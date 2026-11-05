@@ -67,12 +67,12 @@ describe("container embeddings", () => {
   });
 
   test("reports the status when the container cannot embed", async () => {
-    const embedder = fakeEmbedder({ answer: 503 });
+    const embedder = fakeEmbedder({ answer: 400 });
     const config: Embeddings = {
       kind: "container",
       namespace: embedder.namespace,
     };
-    expect(embedQuery(config, "fire")).rejects.toThrow("answered 503");
+    expect(embedQuery(config, "fire")).rejects.toThrow("answered 400");
     expect(embedder.calls).toHaveLength(1);
   });
 
@@ -94,6 +94,18 @@ describe("container instances", () => {
     const cap = config.containers?.[0]?.max_instances;
     expect(cap).toBe(EMBEDDER_INSTANCES.length);
     expect(new Set(EMBEDDER_INSTANCES).size).toBe(EMBEDDER_INSTANCES.length);
+  });
+
+  test("moves to the next instance when the package reports no instance available", async () => {
+    const embedder = fakeEmbedder({
+      answer: (instance) => (instance === "primary" ? 503 : 200),
+    });
+    const reply = await postEmbeddings(embedder.namespace, ["a"]);
+    expect(reply.ok).toBe(true);
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "overflow-1",
+    ]);
   });
 
   test("moves to the next instance when one answers busy", async () => {
