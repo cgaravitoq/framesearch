@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import { busyReply } from "./embedder-routing.ts";
+import { busyReply, CONTAINER_MS_HEADER } from "./embedder-routing.ts";
 import type { Env } from "./env.ts";
 
 const HEALTH_URL = "http://localhost/health";
@@ -17,8 +17,16 @@ export class EmbedderContainer extends Container<Env> {
   override async fetch(request: Request): Promise<Response> {
     if (this.pending > 0) return busyReply();
     this.pending += 1;
+    const started = Date.now();
     try {
-      return await super.fetch(request);
+      const reply = await super.fetch(request);
+      const headers = new Headers(reply.headers);
+      headers.set(CONTAINER_MS_HEADER, String(Date.now() - started));
+      return new Response(reply.body, {
+        headers,
+        status: reply.status,
+        statusText: reply.statusText,
+      });
     } finally {
       this.pending -= 1;
     }

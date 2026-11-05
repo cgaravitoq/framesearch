@@ -138,6 +138,7 @@ export interface FakeEmbedder {
 
 export interface FakeEmbedderOptions {
   answer?: FakeAnswer | ((instance: string, seen: number) => FakeAnswer);
+  containerMs?: number;
   hold?: boolean;
   unreachable?: readonly string[];
   vector?: number[];
@@ -159,6 +160,7 @@ export function fakeEmbedder(options: FakeEmbedderOptions = {}): FakeEmbedder {
       : scripted;
   };
   const reply = (answer: FakeAnswer): Response => {
+    const stamp = options.containerMs;
     if (answer === "busy") return busyReply();
     if (answer !== 200) {
       return new Response("embedder unavailable", { status: answer });
@@ -167,7 +169,12 @@ export function fakeEmbedder(options: FakeEmbedderOptions = {}): FakeEmbedder {
       JSON.stringify({
         data: [{ embedding: options.vector ?? [3, 4], index: 0 }],
       }),
-      { headers: { "content-type": "application/json" } },
+      {
+        headers: {
+          "content-type": "application/json",
+          ...(stamp === undefined ? {} : { "x-embedder-ms": String(stamp) }),
+        },
+      },
     );
   };
   const stub = (instance: string) => ({

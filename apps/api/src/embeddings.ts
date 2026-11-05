@@ -3,6 +3,7 @@ import { embedText } from "@framesearch/core";
 import type { EmbedderContainer } from "./embedder.ts";
 import {
   type EmbedderReply,
+  type EmbedTrace,
   isBusy,
   postEmbeddings,
   warmPrimary,
@@ -14,6 +15,7 @@ export type Embeddings =
   | {
       kind: "container";
       namespace: DurableObjectNamespace<EmbedderContainer>;
+      trace?: EmbedTrace | undefined;
     };
 
 type Remote = Extract<Embeddings, { kind: "url" }>;
@@ -33,6 +35,13 @@ export function embeddingsConfig(env: Env): Embeddings | null {
     : { kind: "container", namespace: env.EMBEDDER };
 }
 
+export function tracedEmbeddings(
+  config: Embeddings,
+  trace: EmbedTrace,
+): Embeddings {
+  return config.kind === "container" ? { ...config, trace } : config;
+}
+
 export async function embedQuery(
   config: Embeddings,
   query: string,
@@ -41,9 +50,18 @@ export async function embedQuery(
   if (config.kind === "url") {
     return await parseVector(await postRemote(config, input), query);
   }
-  const response = await postEmbeddings(config.namespace, [input]);
-  if (isBusy(response)) throw new EmbedderBusy();
-  return await parseVector(response, query);
+  const started = Date.now();
+  try {
+    const response = await postEmbeddings(
+      config.namespace,
+      [input],
+      config.trace,
+    );
+    if (isBusy(response)) throw new EmbedderBusy();
+    return await parseVector(response, query);
+  } finally {
+    if (config.trace !== undefined) config.trace.ms = Date.now() - started;
+  }
 }
 
 export type Prewarm = "warm" | "skipped" | "limited";

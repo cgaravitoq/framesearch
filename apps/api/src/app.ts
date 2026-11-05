@@ -16,7 +16,12 @@ import type {
 import { frameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { cacheKey, readCache, writeCache } from "./cache.ts";
-import { EmbedderBusy, embeddingsConfig } from "./embeddings.ts";
+import type { EmbedTrace } from "./embedder-routing.ts";
+import {
+  EmbedderBusy,
+  embeddingsConfig,
+  tracedEmbeddings,
+} from "./embeddings.ts";
 import type { Env } from "./env.ts";
 import { readFlags } from "./flags.ts";
 import { logClick, logSearch } from "./log.ts";
@@ -74,6 +79,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
   });
 
   app.get("/api/search", async (c) => {
+    const started = Date.now();
+    const trace: EmbedTrace = { attempts: [], busy: 0, containerMs: 0, ms: 0 };
     const limited = await rateLimited(c);
     if (limited !== null) return limited;
     const query = parseQuery(c.req.query("q") ?? null);
@@ -82,22 +89,30 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!film.ok) return failure(film.error, 400);
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
-    const embeddings = embeddingsConfig(c.env);
-    if (embeddings === null) {
+    const config = embeddingsConfig(c.env);
+    if (config === null) {
       console.error(MISSING_EMBEDDINGS);
       return failure(UNAVAILABLE, 503);
     }
     const db = c.env.DB.withSession();
+    const readsStarted = Date.now();
     const published = await publishedFilms(db);
+    const d1 = Date.now() - readsStarted;
     const key = cacheKey(query.value, film.value, k.value);
     const cached = readCache(key, published.signature);
     if (cached !== null) {
-      return searchReply(cached, query.value, film.value, "hit");
+      return searchReply(
+        cached,
+        query.value,
+        film.value,
+        "hit",
+        timing(d1, trace, started),
+      );
     }
     let results: Hit[];
     try {
       results = (
-        await runSearch(c.env, db, embeddings, published, {
+        await runSearch(c.env, db, tracedEmbeddings(config, trace), published, {
           film: film.value,
           k: k.value,
           query: query.value,
@@ -105,16 +120,28 @@ export function createApp(): Hono<{ Bindings: Env }> {
       ).results;
     } catch (error) {
       if (error instanceof EmbedderBusy) {
-        return failure(BUSY, 503, { "retry-after": BUSY_RETRY_AFTER_SECONDS });
+        return failure(BUSY, 503, {
+          "retry-after": BUSY_RETRY_AFTER_SECONDS,
+          "server-timing": timing(d1, trace, started),
+        });
       }
       console.error("search failed", error);
-      return failure(UNAVAILABLE, 502);
+      return failure(UNAVAILABLE, 502, {
+        "server-timing": timing(d1, trace, started),
+      });
     }
     writeCache(key, published.signature, results);
-    return searchReply(results, query.value, film.value, "miss");
+    return searchReply(
+      results,
+      query.value,
+      film.value,
+      "miss",
+      timing(d1, trace, started),
+    );
   });
 
   app.get("/api/similar", async (c) => {
+    const started = Date.now();
     const limited = await rateLimited(c);
     if (limited !== null) return limited;
     const id = parseShotId(c.req.query("id") ?? "");
@@ -122,11 +149,13 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const k = parseK(c.req.query("k") ?? null);
     if (!k.ok) return failure(k.error, 400);
     const db = c.env.DB.withSession();
+    const readsStarted = Date.now();
     const published = await publishedFilms(db);
+    const d1 = Date.now() - readsStarted;
     try {
       const results = await runSimilar(c.env, db, published, id.value, k.value);
       const reply: SimilarReply = { results, shotId: id.value };
-      return json(reply);
+      return json(reply, 200, { "server-timing": timing(d1, null, started) });
     } catch (error) {
       console.error("similar failed", error);
       return failure(SERVER_ERROR, 502);
@@ -201,12 +230,22 @@ function searchReply(
   query: string,
   film: string | null,
   cache: "hit" | "miss",
+  serverTiming: string,
 ): Response {
   const reply: SearchReply = { film, query, results };
   return json(reply, 200, {
     "cache-control": `public, max-age=${SEARCH_CACHE_SECONDS}`,
+    "server-timing": serverTiming,
     "x-cache": cache,
   });
+}
+
+function timing(d1: number, trace: EmbedTrace | null, started: number): string {
+  const embed =
+    trace === null || trace.attempts.length === 0
+      ? 'embed;dur=0;desc="none"'
+      : `embed;dur=${trace.ms};desc="${trace.attempts.join(">")} busy=${trace.busy} container=${trace.containerMs}"`;
+  return `d1;dur=${d1},${embed},total;dur=${Date.now() - started}`;
 }
 
 type FilmChoice =
