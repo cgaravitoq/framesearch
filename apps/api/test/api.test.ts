@@ -506,6 +506,36 @@ describe("log routes", () => {
     expect(insert?.args).not.toContain(IP);
   });
 
+  test("record the rank the visitor saw over the stored one", async () => {
+    const { db, queries } = fakeDb({
+      rows: [{ shot_ids: JSON.stringify([11, 22, 33]) }],
+    });
+    const response = await createApp().request(
+      "/api/log/click",
+      {
+        body: JSON.stringify({ rank: 5, searchId: 42, shotId: 22 }),
+        headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+        method: "POST",
+      },
+      fakeEnv({ DB: db }),
+    );
+    expect(await response.json()).toEqual({ id: null, logged: true, rank: 5 });
+    const insert = queries.find((query) =>
+      query.sql.includes("INSERT INTO search_click"),
+    );
+    expect(insert?.args.slice(0, 3)).toEqual([42, 22, 5]);
+  });
+
+  test("refuse a click whose rank is not a positive integer", async () => {
+    for (const rank of ["0", "-1", "1.5", '"2"', "true"]) {
+      const response = await logRequest(
+        "/api/log/click",
+        `{"searchId":42,"shotId":22,"rank":${rank}}`,
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
   test("refuse a click without a search id", async () => {
     const response = await logRequest("/api/log/click", '{"shotId":22}');
     expect(response.status).toBe(400);
