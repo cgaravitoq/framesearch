@@ -17,6 +17,7 @@ interface Column {
   filmSlots: Int32Array;
   values: Int8Array;
   slots: Map<string, number>;
+  rows: Map<number, number>;
 }
 
 export function createVectorStore(
@@ -29,6 +30,12 @@ export function createVectorStore(
   return {
     rank(query, options) {
       return rank(columns[options.kind], query, options);
+    },
+    vector(kind, shotId) {
+      const column = columns[kind];
+      const at = column.rows.get(shotId);
+      if (at === undefined) return undefined;
+      return column.values.subarray(at * column.dim, (at + 1) * column.dim);
     },
   };
 }
@@ -62,12 +69,14 @@ function toColumn(
   const shotIds = new Int32Array(entries.length);
   const filmSlots = new Int32Array(entries.length);
   const values = new Int8Array(entries.length * dim);
+  const rows = new Map<number, number>();
   entries.forEach((entry, at) => {
     shotIds[at] = entry.shotId;
     filmSlots[at] = entry.slot;
+    rows.set(entry.shotId, at);
     values.set(entry.values, at * dim);
   });
-  return { dim, shotIds, filmSlots, values, slots };
+  return { dim, shotIds, filmSlots, values, slots, rows };
 }
 
 function rank(

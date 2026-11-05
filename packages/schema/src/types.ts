@@ -82,4 +82,5 @@ export interface RankedShot {
 
 export interface VectorStore {
   rank(query: Float32Array, options: RankOptions): RankedShot[];
+  vector(kind: VectorKind, shotId: number): Int8Array | undefined;
 }

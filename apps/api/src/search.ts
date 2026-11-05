@@ -79,13 +79,15 @@ export async function runSimilar(
   k: number,
 ): Promise<Hit[]> {
   const vectors = await loadVectors(env, published);
-  const source = vectors.frames.get(shotId);
+  const film = vectors.films.get(shotId);
+  if (film === undefined) return [];
+  const source = vectors.store.vector("frame", shotId);
   if (source === undefined) return [];
   const sameShot = await sameShotIds(env, shotId);
   const ranked = vectors.store
-    .rank(toQuery(source.values), {
+    .rank(toQuery(source), {
       exclude: shotId,
-      film: source.film,
+      film,
       kind: "frame",
     })
     .filter((hit) => !sameShot.has(hit.shotId))

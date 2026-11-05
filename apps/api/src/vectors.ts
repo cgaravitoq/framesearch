@@ -19,7 +19,7 @@ export interface Published {
 export interface LoadedVectors {
   signature: string;
   store: VectorStore;
-  frames: Map<number, { film: string; values: Int8Array }>;
+  films: ReadonlyMap<number, string>;
 }
 
 const PUBLISHED_QUERY =
@@ -68,19 +68,17 @@ async function readFilms(
   published: Published,
 ): Promise<LoadedVectors> {
   const sets: FilmVectorSet[] = [];
-  const frames = new Map<number, { film: string; values: Int8Array }>();
+  const films = new Map<number, string>();
   for (const film of published.films) {
     const object = await env.FRAMES.get(vectorsKey(film.slug));
     if (object === null) continue;
     const vectors = decodeVectors(await object.arrayBuffer());
     sets.push({ film: film.slug, vectors });
-    for (const record of vectors.frames) {
-      frames.set(record.shotId, { film: film.slug, values: record.values });
-    }
+    for (const record of vectors.frames) films.set(record.shotId, film.slug);
   }
   return {
     signature: published.signature,
     store: createVectorStore(sets),
-    frames,
+    films,
   };
 }
