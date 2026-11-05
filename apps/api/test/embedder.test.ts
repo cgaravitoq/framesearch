@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
-import { postEmbeddings } from "../src/embedder-routing.ts";
+import { EMBEDDER_INSTANCES, postEmbeddings } from "../src/embedder-routing.ts";
 import {
   type Embeddings,
   embeddingsConfig,
@@ -87,6 +87,15 @@ describe("container embeddings", () => {
 });
 
 describe("container instances", () => {
+  test("keeps the instance list on the deployed cap", () => {
+    const config = JSON.parse(
+      readFileSync(`${import.meta.dir}/../wrangler.jsonc`, "utf8"),
+    ) as { containers?: { max_instances?: number }[] };
+    const cap = config.containers?.[0]?.max_instances;
+    expect(cap).toBe(EMBEDDER_INSTANCES.length);
+    expect(new Set(EMBEDDER_INSTANCES).size).toBe(EMBEDDER_INSTANCES.length);
+  });
+
   test("moves to the next instance when one answers busy", async () => {
     const embedder = fakeEmbedder({
       answer: (instance) => (instance === "primary" ? "busy" : 200),
