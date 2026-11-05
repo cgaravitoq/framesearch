@@ -23,7 +23,12 @@ export function publishSql(film: Film, shots: readonly StoredShot[]): string {
 }
 
 export function unpublishSql(film: string): string {
-  return render([...DDL, ...removeStatements(film)]);
+  return render([...DDL, publishedDelete(film), ...removeStatements(film)]);
+}
+
+export function publishedVersionSql(film: string, at: number): string {
+  const version = `MAX(${number(at)}, COALESCE((SELECT MAX(version) FROM published), 0) + 1)`;
+  return `INSERT INTO published (film, version) VALUES (${text(film)}, ${version}) ON CONFLICT (film) DO UPDATE SET version = excluded.version`;
 }
 
 export function publishedFramesSql(film: string): string {
@@ -34,6 +39,10 @@ export function ftsText(shot: StoredShot): string {
   const parts = shot.caption === null ? [] : [shot.caption];
   parts.push(...shot.tags);
   return parts.join(" ").trim();
+}
+
+function publishedDelete(film: string): string {
+  return `DELETE FROM published WHERE film = ${text(film)}`;
 }
 
 function removeStatements(film: string): string[] {

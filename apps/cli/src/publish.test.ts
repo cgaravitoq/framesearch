@@ -1,8 +1,9 @@
+import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encodeVectors, type FilmVectors } from "@framesearch/schema";
+import { DDL, encodeVectors, type FilmVectors } from "@framesearch/schema";
 import type { Cloud } from "./cloud.ts";
 import { frameFile, vectorsFile } from "./paths.ts";
 import { publishFilm } from "./publish.ts";
@@ -75,8 +76,9 @@ function writeFrames(dir: string, shots: readonly StoredShot[]): void {
 function fakeCloud(
   published: number[],
   failAt?: "rows",
-): { cloud: Cloud; calls: string[] } {
+): { cloud: Cloud; calls: string[]; sql: string[] } {
   const calls: string[] = [];
+  const sql: string[] = [];
   const cloud: Cloud = {
     putObjects: async (objects) => {
       calls.push(`put ${objects.map((object) => object.key).join(",")}`);
@@ -84,13 +86,18 @@ function fakeCloud(
     deleteObject: async (key) => {
       calls.push(`delete ${key}`);
     },
-    executeSql: async () => {
-      if (failAt === "rows") throw new Error("D1 refused the batch");
-      calls.push("rows");
+    executeSql: async (statements) => {
+      sql.push(statements);
+      if (failAt === "rows" && statements.includes("INSERT INTO films")) {
+        throw new Error("D1 refused the batch");
+      }
+      calls.push(
+        statements.includes("INSERT INTO published") ? "version" : "rows",
+      );
     },
     publishedFrames: async () => published,
   };
-  return { cloud, calls };
+  return { calls, cloud, sql };
 }
 
 function frameKeys(shots: readonly StoredShot[]): string {
@@ -98,7 +105,7 @@ function frameKeys(shots: readonly StoredShot[]): string {
 }
 
 describe("publish", () => {
-  test("uploads the frames, then the rows, then the vectors last", async () => {
+  test("uploads the frames, the rows, the vectors, then the version", async () => {
     const dir = dataDir();
     const shots = seed(dir);
     writeVectors(dir, vectorsFor(shots));
@@ -109,7 +116,37 @@ describe("publish", () => {
       `put ${frameKeys(shots)}`,
       "rows",
       `put vectors/${SLUG}.bin`,
+      "version",
     ]);
+  });
+
+  test("keeps the published version rising on a republish of the same rows", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, sql } = fakeCloud([]);
+    await publishFilm(SLUG, { dataDir: dir, cloud });
+    await publishFilm(SLUG, { dataDir: dir, cloud });
+    const versions = sql.filter((statements) =>
+      statements.includes("INSERT INTO published"),
+    );
+    expect(versions.length).toBe(2);
+    const db = new Database(":memory:");
+    for (const statement of DDL) db.exec(statement);
+    const read = (): number =>
+      db
+        .query<{ version: number }, [string]>(
+          "SELECT version FROM published WHERE film = ?1",
+        )
+        .get(SLUG)?.version ?? 0;
+    const seen: number[] = [];
+    for (const statement of versions) {
+      db.exec(statement);
+      seen.push(read());
+    }
+    expect(seen[0]).toBeGreaterThan(0);
+    expect(seen[1]).toBeGreaterThan(seen[0] ?? 0);
   });
 
   test("leaves no vectors behind when the rows fail to land", async () => {
@@ -147,6 +184,7 @@ describe("publish", () => {
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/4.jpg`,
     ]);
+    expect(calls.at(-1)).toBe("version");
   });
 
   test("refuses a store whose vectors file lost a frame", async () => {
@@ -225,7 +263,7 @@ describe("publish", () => {
 
 describe("unpublish", () => {
   test("removes the vectors, then the rows, then the frames", async () => {
-    const { cloud, calls } = fakeCloud([0, 1, 2]);
+    const { cloud, calls, sql } = fakeCloud([0, 1, 2]);
     await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
     expect(calls).toEqual([
       `delete vectors/${SLUG}.bin`,
@@ -234,5 +272,6 @@ describe("unpublish", () => {
       `delete frames/${SLUG}/1.jpg`,
       `delete frames/${SLUG}/2.jpg`,
     ]);
+    expect(sql[0]).toContain(`DELETE FROM published WHERE film = '${SLUG}'`);
   });
 });

@@ -19,4 +19,8 @@ export const DDL: readonly string[] = [
     caption,
     tokenize = 'porter'
   )`,
+  `CREATE TABLE IF NOT EXISTS published (
+    film TEXT PRIMARY KEY,
+    version INTEGER NOT NULL
+  )`,
 ];
