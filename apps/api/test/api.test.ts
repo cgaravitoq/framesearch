@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 import {
   encodeVectors,
   type SearchReply,
@@ -34,6 +35,28 @@ describe("films", () => {
         },
       ],
     });
+  });
+
+  test("answers an unhandled failure without its error", async () => {
+    const db = {
+      prepare: () => {
+        throw new Error(LEAK);
+      },
+    } as unknown as D1Database;
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/films",
+        {},
+        fakeEnv({ DB: db }),
+      );
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Something went wrong" }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   test("answers an unknown API path with JSON", async () => {
@@ -272,6 +295,33 @@ describe("search cache", () => {
 });
 
 describe("similar", () => {
+  test("answers a failed vector load without its error", async () => {
+    const { db } = fakeDb({
+      rows: (sql) =>
+        sql.includes("MAX(s.id)") ? [{ slug: "the-bat", version: 9 }] : [],
+    });
+    const frames = {
+      get: async () => {
+        throw new Error(LEAK);
+      },
+      head: async () => null,
+    } as unknown as R2Bucket;
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/similar?id=1",
+        {},
+        fakeEnv({ DB: db, FRAMES: frames }),
+      );
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Something went wrong" }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   test("never answers with another frame of the shot it was asked about", async () => {
     const film = "night-of-the-living-dead";
     const shot = (id: number, shotStart: number, shotEnd: number) => ({
