@@ -1,4 +1,4 @@
-import { DDL, type Film } from "@framesearch/schema";
+import { DDL, type Film, vectorsKey } from "@framesearch/schema";
 import type { StoredShot } from "./store.ts";
 
 export function publishSql(film: Film, shots: readonly StoredShot[]): string {
@@ -32,7 +32,7 @@ export function publishedVersionSql(
   key: string,
 ): string {
   const version = `MAX(${number(at)}, COALESCE((SELECT MAX(version) FROM published), 0) + 1)`;
-  return `INSERT INTO published (film, version, vectors_key, prior_vectors_key) VALUES (${text(film)}, ${version}, ${text(key)}, NULL) ON CONFLICT (film) DO UPDATE SET version = excluded.version, vectors_key = excluded.vectors_key, prior_vectors_key = published.vectors_key`;
+  return `INSERT INTO published (film, version, vectors_key, prior_vectors_key) VALUES (${text(film)}, ${version}, ${text(key)}, NULL) ON CONFLICT (film) DO UPDATE SET version = excluded.version, vectors_key = excluded.vectors_key, prior_vectors_key = COALESCE(published.vectors_key, ${text(vectorsKey(film))})`;
 }
 
 export function publishedVectorsSql(film: string): string {

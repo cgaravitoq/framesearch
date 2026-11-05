@@ -183,7 +183,6 @@ describe("publish", () => {
     expect(statements.length).toBe(1);
     const row = publishedRow(writes[0] ?? "");
     expect(row?.vectors).toBe(report.vectorsKey);
-    expect(row?.prior).toBeNull();
   });
 
   test("keeps the vectors file the previous publish wrote and deletes the older one", async () => {
@@ -211,6 +210,22 @@ describe("publish", () => {
     });
     expect(row?.vectors).toBe(report.vectorsKey);
     expect(row?.prior).toBe(previous);
+  });
+
+  test("keeps the plain file of a film published before the keys as the previous one", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls, sql } = fakeCloud([]);
+    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(calls).not.toContain(`delete ${vectorsKey(SLUG)}`);
+    const writes = sql.filter((statements) =>
+      statements.includes("INSERT INTO published"),
+    );
+    const row = publishedRow(writes[0] ?? "");
+    expect(row?.vectors).toBe(report.vectorsKey);
+    expect(row?.prior).toBe(vectorsKey(SLUG));
   });
 
   test("keeps the published version rising on a republish of the same rows", async () => {
