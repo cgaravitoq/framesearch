@@ -37,12 +37,12 @@ export async function unpublishFilm(
       ...(await cloud.publishedFrames(slug)),
     ]),
   ];
-  await mapBounded(frames, UPLOAD_CONCURRENCY, (idx) =>
-    cloud.deleteObject(frameKey(slug, idx)),
-  );
   const key = vectorsKey(slug);
   await cloud.deleteObject(key);
   await cloud.executeSql(unpublishSql(slug));
+  await mapBounded(frames, UPLOAD_CONCURRENCY, (idx) =>
+    cloud.deleteObject(frameKey(slug, idx)),
+  );
   return {
     film: slug,
     frames: frames.length,
