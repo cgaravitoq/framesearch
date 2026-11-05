@@ -1,23 +1,18 @@
 import { MAX_QUERY_LENGTH, parseFilmSlug } from "@framesearch/core";
+import type { ClickLogReply, SearchLogReply } from "@framesearch/schema";
 import type { Env } from "./env.ts";
 
 const MAX_BODY_BYTES = 8192;
 const MAX_LOGGED_SHOTS = 200;
 
-export interface Logged {
-  logged: boolean;
-  id: number | null;
-  rank?: number | null;
-}
-
-export type LogResult =
-  | { ok: true; body: Logged }
+export type LogResult<T> =
+  | { ok: true; body: T }
   | { ok: false; status: number; error: string };
 
 export async function logSearch(
   env: Env,
   request: Request,
-): Promise<LogResult> {
+): Promise<LogResult<SearchLogReply>> {
   const read = await readJson(request);
   if (!read.ok) return read;
   const query =
@@ -64,7 +59,10 @@ export async function logSearch(
   }
 }
 
-export async function logClick(env: Env, request: Request): Promise<LogResult> {
+export async function logClick(
+  env: Env,
+  request: Request,
+): Promise<LogResult<ClickLogReply>> {
   const read = await readJson(request);
   if (!read.ok) return read;
   const searchId = positiveInteger(read.body.searchId);
@@ -83,13 +81,18 @@ export async function logClick(env: Env, request: Request): Promise<LogResult> {
       error: "shotId must be a positive integer",
     };
   }
+  const declaredRank = read.body.rank ?? null;
+  const givenRank =
+    declaredRank === null ? null : positiveInteger(declaredRank);
+  if (declaredRank !== null && givenRank === null) {
+    return {
+      ok: false,
+      status: 400,
+      error: "rank must be a positive integer or null",
+    };
+  }
   try {
-    const row = await env.DB.prepare(
-      "SELECT shot_ids FROM search_log WHERE id = ?1",
-    )
-      .bind(searchId)
-      .first<{ shot_ids: string }>();
-    const rank = rankOf(row?.shot_ids ?? null, shotId);
+    const rank = givenRank ?? (await storedRank(env, searchId, shotId));
     await env.DB.prepare(
       "INSERT INTO search_click (search_id, shot_id, rank, created_at) VALUES (?1, ?2, ?3, ?4)",
     )
@@ -99,6 +102,19 @@ export async function logClick(env: Env, request: Request): Promise<LogResult> {
   } catch {
     return { ok: true, body: { id: null, logged: false, rank: null } };
   }
+}
+
+async function storedRank(
+  env: Env,
+  searchId: number,
+  shotId: number,
+): Promise<number | null> {
+  const row = await env.DB.prepare(
+    "SELECT shot_ids FROM search_log WHERE id = ?1",
+  )
+    .bind(searchId)
+    .first<{ shot_ids: string }>();
+  return rankOf(row?.shot_ids ?? null, shotId);
 }
 
 type ReadResult =

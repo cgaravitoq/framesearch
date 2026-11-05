@@ -4,7 +4,13 @@ import {
   parseQuery,
   parseShotId,
 } from "@framesearch/core";
-import type { Film, SearchReply } from "@framesearch/schema";
+import type {
+  ErrorReply,
+  Film,
+  FilmsReply,
+  SearchReply,
+  SimilarReply,
+} from "@framesearch/schema";
 import { frameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { embeddingsConfig } from "./embeddings.ts";
@@ -29,7 +35,8 @@ export function createApp(): Hono<{ Bindings: Env }> {
     const { results } = await c.env.DB.prepare(
       "SELECT slug, title, duration FROM films ORDER BY title",
     ).all<Film>();
-    return json({ films: results });
+    const reply: FilmsReply = { films: results };
+    return json(reply);
   });
 
   app.get("/frames/:film/:frame", async (c) => {
@@ -101,10 +108,9 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!k.ok) return failure(k.error, 400);
     const published = await publishedFilms(c.env);
     try {
-      return json({
-        results: await runSimilar(c.env, published, id.value, k.value),
-        shotId: id.value,
-      });
+      const results = await runSimilar(c.env, published, id.value, k.value);
+      const reply: SimilarReply = { results, shotId: id.value };
+      return json(reply);
     } catch (error) {
       console.error("similar failed", error);
       return failure(SERVER_ERROR, 502);
@@ -149,7 +155,8 @@ function failure(
   status: number,
   headers: Record<string, string> = {},
 ): Response {
-  return json({ error }, status, headers);
+  const reply: ErrorReply = { error };
+  return json(reply, status, headers);
 }
 
 async function rateLimited(

@@ -33,6 +33,40 @@ export interface SearchReply {
   results: Hit[];
 }
 
+export interface FilmsReply {
+  films: Film[];
+}
+
+export interface SimilarReply {
+  shotId: number;
+  results: Hit[];
+}
+
+export interface SearchLogRequest {
+  query: string;
+  film: string | null;
+  shotIds: number[];
+}
+
+export interface ClickLogRequest {
+  searchId: number;
+  shotId: number;
+  rank: number | null;
+}
+
+export interface SearchLogReply {
+  logged: boolean;
+  id: number | null;
+}
+
+export interface ClickLogReply extends SearchLogReply {
+  rank: number | null;
+}
+
+export interface ErrorReply {
+  error: string;
+}
+
 export type VectorKind = "frame" | "caption";
 
 export interface RankOptions {
