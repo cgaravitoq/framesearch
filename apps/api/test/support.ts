@@ -28,6 +28,7 @@ export interface FakeDb {
 }
 
 export interface FakeDbOptions {
+  delayMs?: number | undefined;
   rows?: unknown[] | ((sql: string) => unknown[]);
   lastRowId?: number;
 }
@@ -36,18 +37,31 @@ export function fakeDb(options: FakeDbOptions = {}): FakeDb {
   const queries: Query[] = [];
   const statements: string[] = [];
   const sessions: FakeSession[] = [];
+  const wait = async (): Promise<void> => {
+    if (options.delayMs === undefined) return;
+    await new Promise<void>((settle) => setTimeout(settle, options.delayMs));
+  };
   const rowsFor = (sql: string): unknown[] => {
     const rows = options.rows ?? [];
     return typeof rows === "function" ? rows(sql) : rows;
   };
   const prepared = (rows: unknown[]) => ({
-    all: async () => ({ results: rows, success: true, meta: {} }),
-    first: async () => rows[0] ?? null,
-    run: async () => ({
-      results: [],
-      success: true,
-      meta: { changes: 1, last_row_id: options.lastRowId ?? 1 },
-    }),
+    all: async () => {
+      await wait();
+      return { results: rows, success: true, meta: {} };
+    },
+    first: async () => {
+      await wait();
+      return rows[0] ?? null;
+    },
+    run: async () => {
+      await wait();
+      return {
+        results: [],
+        success: true,
+        meta: { changes: 1, last_row_id: options.lastRowId ?? 1 },
+      };
+    },
   });
   const prepareFor = (sinks: string[][], bound: Query[]) => (sql: string) => {
     for (const sink of sinks) sink.push(sql);
