@@ -124,6 +124,18 @@ describe("publish", () => {
     expect(calls).toEqual([`put ${frameKeys(shots)}`]);
   });
 
+  test("keeps the frames the published rows still show when the rows fail", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4], "rows");
+    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
+      /D1 refused the batch/,
+    );
+    expect(calls).toEqual([`put ${frameKeys(shots)}`]);
+  });
+
   test("removes the frames an earlier, longer cut left in R2", async () => {
     const dir = dataDir();
     const shots = seed(dir);

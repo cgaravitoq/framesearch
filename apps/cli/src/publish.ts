@@ -73,14 +73,14 @@ export async function publishFilm(
     await cloud.putObjects(
       frames.map((frame) => ({ ...frame, contentType: "image/jpeg" })),
     );
-    await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
-      cloud.deleteObject(frameKey(slug, idx)),
-    );
     await cloud.executeSql(publishSql(film, shots));
     const key = vectorsKey(slug);
     await cloud.putObjects([
       { key, file: localVectors, contentType: "application/octet-stream" },
     ]);
+    await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
+      cloud.deleteObject(frameKey(slug, idx)),
+    );
 
     return {
       film: slug,
