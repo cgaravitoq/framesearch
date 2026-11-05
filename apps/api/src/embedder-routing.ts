@@ -31,14 +31,29 @@ export async function postEmbeddings(
   const name = idleInstance(inFlight);
   inFlight.set(name, (inFlight.get(name) ?? 0) + 1);
   try {
-    return await namespace.getByName(name).fetch(EMBEDDINGS_URL, {
-      body: JSON.stringify({ input }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
+    return await postTo(namespace, name, input);
   } finally {
     const pending = (inFlight.get(name) ?? 1) - 1;
     if (pending === 0) inFlight.delete(name);
     else inFlight.set(name, pending);
   }
+}
+
+export function warmPrimary(
+  namespace: DurableObjectNamespace<EmbedderContainer>,
+  input: readonly string[],
+): Promise<EmbedderReply> {
+  return postTo(namespace, EMBEDDER_INSTANCES[0], input);
+}
+
+function postTo(
+  namespace: DurableObjectNamespace<EmbedderContainer>,
+  name: string,
+  input: readonly string[],
+): Promise<EmbedderReply> {
+  return namespace.getByName(name).fetch(EMBEDDINGS_URL, {
+    body: JSON.stringify({ input }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
 }

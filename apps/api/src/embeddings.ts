@@ -1,7 +1,11 @@
 import type { DurableObjectNamespace } from "@cloudflare/workers-types";
 import { embedText } from "@framesearch/core";
 import type { EmbedderContainer } from "./embedder.ts";
-import { type EmbedderReply, postEmbeddings } from "./embedder-routing.ts";
+import {
+  type EmbedderReply,
+  postEmbeddings,
+  warmPrimary,
+} from "./embedder-routing.ts";
 import type { Env } from "./env.ts";
 
 export type Embeddings =
@@ -43,7 +47,7 @@ export async function embedQuery(
 export async function prewarmEmbeddings(env: Env): Promise<boolean> {
   const config = embeddingsConfig(env);
   if (config === null || config.kind !== "container") return false;
-  const response = await postEmbeddings(config.namespace, [PREWARM_TEXT]);
+  const response = await warmPrimary(config.namespace, [PREWARM_TEXT]);
   if (!response.ok) {
     throw new Error(
       `the embedder answered ${response.status} to the prewarm request`,

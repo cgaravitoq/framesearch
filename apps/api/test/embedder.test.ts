@@ -144,6 +144,33 @@ describe("prewarm", () => {
     ]);
   });
 
+  test("wakes only the shared instance and leaves it free for searches", async () => {
+    const embedder = fakeEmbedder({ hold: true });
+    const env = fakeEnv({ EMBEDDER: embedder.namespace });
+    const config: Embeddings = {
+      kind: "container",
+      namespace: embedder.namespace,
+    };
+    const searching = embedQuery(config, "a");
+    const warming = prewarmEmbeddings(env);
+    const after = embedQuery(config, "b");
+    expect(embedder.calls.map((call) => call.instance)).toEqual([
+      "primary",
+      "primary",
+      "overflow-1",
+    ]);
+    embedder.release();
+    await Promise.all([searching, warming, after]);
+    const warmingAgain = prewarmEmbeddings(env);
+    const next = embedQuery(config, "c");
+    embedder.release();
+    await Promise.all([warmingAgain, next]);
+    expect(embedder.calls.slice(-2).map((call) => call.instance)).toEqual([
+      "primary",
+      "primary",
+    ]);
+  });
+
   test("does nothing when a remote URL serves the embeddings", async () => {
     const embedder = fakeEmbedder();
     const warm = await prewarmEmbeddings(
