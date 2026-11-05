@@ -3,6 +3,7 @@ import type {
   ClickLogRequest,
   Film,
   FilmsReply,
+  FlagsReply,
   SearchLogReply,
   SearchReply,
   SimilarReply,
@@ -45,6 +46,10 @@ export function prewarmEmbedder(): void {
 export async function getFilms(signal: AbortSignal): Promise<Film[]> {
   const reply = await getJson<FilmsReply>("/api/films", signal);
   return reply.films;
+}
+
+export async function getFlags(signal: AbortSignal): Promise<FlagsReply> {
+  return getJson<FlagsReply>("/api/flags", signal);
 }
 
 export async function searchShots(

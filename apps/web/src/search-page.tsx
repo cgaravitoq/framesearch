@@ -14,6 +14,7 @@ import {
 import { Hero } from "./hero";
 import {
   getFilms,
+  getFlags,
   logClick,
   logSearch,
   searchShots,
@@ -53,6 +54,12 @@ export function SearchPage() {
     queryFn: ({ signal }) => getFilms(signal),
   });
 
+  const flags = useQuery({
+    queryKey: ["flags"],
+    queryFn: ({ signal }) => getFlags(signal),
+  });
+  const searchLog = flags.data?.searchLog ?? true;
+
   const search = useQuery({
     queryKey: ["search", term, film, submits],
     queryFn: ({ signal }) => searchShots(term, film, signal),
@@ -66,13 +73,17 @@ export function SearchPage() {
     enabled: similarFrom > 0,
   });
 
-  const settleSearchLog = useCallback((reply: SearchReply) => {
-    const previous = settledLog.current;
-    if (previous !== null && previous.reply === reply) return previous.id;
-    const id = logSearch(reply);
-    settledLog.current = { reply, id };
-    return id;
-  }, []);
+  const settleSearchLog = useCallback(
+    (reply: SearchReply) => {
+      if (!searchLog) return Promise.resolve(null);
+      const previous = settledLog.current;
+      if (previous !== null && previous.reply === reply) return previous.id;
+      const id = logSearch(reply);
+      settledLog.current = { reply, id };
+      return id;
+    },
+    [searchLog],
+  );
 
   useEffect(() => {
     const trimmed = input.trim();
@@ -229,10 +240,12 @@ export function SearchPage() {
         </section>
       )}
 
-      <p className="m-0 text-xs text-muted">
-        Searches are logged anonymously: the query and the shots you open, never
-        your IP.
-      </p>
+      {searchLog && (
+        <p className="m-0 text-xs text-muted">
+          Searches are logged anonymously: the query and the shots you open,
+          never your IP.
+        </p>
+      )}
     </main>
   );
 }
