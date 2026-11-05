@@ -32,6 +32,19 @@ describe("captionImages", () => {
     expect(report.failed).toBe(0);
   });
 
+  test("holds the budget when parallel requests retry an unreadable reply", async () => {
+    const report = await captionImages(images(40), {
+      apiKey: "",
+      budgetUsd: 0.1,
+      concurrency: 8,
+      ask: async () => {
+        await Bun.sleep(1);
+        return { content: "not json", cost: 0.01 };
+      },
+    });
+    expect(report.costUsd).toBeLessThanOrEqual(0.1 + 1e-9);
+  });
+
   test("keeps its concurrency when the replies carry no cost", async () => {
     let running = 0;
     let peak = 0;

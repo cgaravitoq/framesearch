@@ -118,7 +118,9 @@ export async function captionImages(
       let caption: Caption | null = null;
       try {
         for (let attempt = 0; attempt < 2 && caption === null; attempt += 1) {
-          if (spent >= options.budgetUsd) break;
+          if (attempt > 0 && spent + inflight * highest > options.budgetUsd) {
+            break;
+          }
           const reply = await ask(image);
           spent += reply.cost;
           highest = Math.max(highest, reply.cost);
