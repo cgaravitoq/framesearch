@@ -16,7 +16,7 @@ import type {
 import { frameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { cacheKey, readCache, writeCache } from "./cache.ts";
-import { embeddingsConfig } from "./embeddings.ts";
+import { EmbedderBusy, embeddingsConfig } from "./embeddings.ts";
 import type { Env } from "./env.ts";
 import { readFlags } from "./flags.ts";
 import { logClick, logSearch } from "./log.ts";
@@ -28,6 +28,8 @@ const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
 const SEARCH_CACHE_SECONDS = 60;
 const UNAVAILABLE = "Search is temporarily unavailable";
+const BUSY = "Search is busy, try again in a moment";
+const BUSY_RETRY_AFTER_SECONDS = "2";
 const SERVER_ERROR = "Something went wrong";
 const MISSING_EMBEDDINGS =
   "search is unavailable: neither EMBED_URL with EMBED_API_KEY and EMBED_MODEL nor the EMBEDDER container is configured";
@@ -100,6 +102,9 @@ export function createApp(): Hono<{ Bindings: Env }> {
         })
       ).results;
     } catch (error) {
+      if (error instanceof EmbedderBusy) {
+        return failure(BUSY, 503, { "retry-after": BUSY_RETRY_AFTER_SECONDS });
+      }
       console.error("search failed", error);
       return failure(UNAVAILABLE, 502);
     }

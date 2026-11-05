@@ -3,12 +3,18 @@ import { readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
 import { EMBEDDER_INSTANCES, postEmbeddings } from "../src/embedder-routing.ts";
 import {
+  EmbedderBusy,
   type Embeddings,
   embeddingsConfig,
   embedQuery,
   prewarmEmbeddings,
 } from "../src/embeddings.ts";
-import { fakeEmbedder, fakeEnv, fakeRateLimit } from "./support.ts";
+import {
+  fakeEmbedder,
+  fakeEnv,
+  fakeRateLimit,
+  withFakeTime,
+} from "./support.ts";
 
 describe("embeddings config", () => {
   test("prefers EMBED_URL so a local llama.cpp still serves without the container", () => {
@@ -83,6 +89,18 @@ describe("container embeddings", () => {
       namespace: embedder.namespace,
     };
     expect(embedQuery(config, "fire")).rejects.toThrow("returned no vector");
+  });
+
+  test("reports busy once every instance stayed busy past the wait budget", async () => {
+    const embedder = fakeEmbedder({ answer: "busy" });
+    const config: Embeddings = {
+      kind: "container",
+      namespace: embedder.namespace,
+    };
+    await expect(
+      withFakeTime(() => embedQuery(config, "fire")),
+    ).rejects.toThrow(EmbedderBusy);
+    expect(embedder.calls.length).toBeGreaterThan(EMBEDDER_INSTANCES.length);
   });
 });
 

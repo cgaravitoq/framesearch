@@ -1,3 +1,4 @@
+import { jest } from "bun:test";
 import type {
   D1Database,
   DurableObjectNamespace,
@@ -190,4 +191,26 @@ export function fakeEnv(overrides: Partial<Env> = {}): Env {
     SEARCH_RATE_LIMIT: fakeRateLimit(true),
     ...overrides,
   };
+}
+
+export async function withFakeTime<T>(work: () => Promise<T>): Promise<T> {
+  jest.useFakeTimers();
+  try {
+    return await advanceThrough(work(), 1_000);
+  } finally {
+    jest.useRealTimers();
+  }
+}
+
+async function advanceThrough<T>(work: Promise<T>, stepMs: number): Promise<T> {
+  let settled = false;
+  const settle = (): void => {
+    settled = true;
+  };
+  void work.then(settle, settle);
+  for (let step = 0; step < 40 && !settled; step += 1) {
+    for (let drain = 0; drain < 20; drain += 1) await Promise.resolve();
+    jest.advanceTimersByTime(stepMs);
+  }
+  return await work;
 }

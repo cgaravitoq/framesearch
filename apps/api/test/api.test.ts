@@ -13,6 +13,7 @@ import {
   fakeEnv,
   fakeR2,
   fakeRateLimit,
+  withFakeTime,
 } from "./support.ts";
 
 describe("films", () => {
@@ -352,6 +353,30 @@ describe("search availability", () => {
     const reply = (await response.json()) as SearchReply;
     expect(reply.results.map((hit) => hit.shotId)).toEqual([1, 2]);
     expect(embedder.calls.map((call) => call.instance)).toEqual(["primary"]);
+  });
+
+  test("answers a busy embedder with a 503 the user can retry", async () => {
+    const fixture = searchFixture("white-zombie", 2);
+    const embedder = fakeEmbedder({ answer: "busy", vector: [1, 0] });
+    const env: Env = {
+      ...fixture.env,
+      EMBEDDER: embedder.namespace,
+      EMBED_API_KEY: undefined,
+      EMBED_MODEL: undefined,
+      EMBED_URL: undefined,
+    };
+    const response = await withFakeTime(async () =>
+      createApp().request(
+        "/api/search?q=a%20busy%20zombie%20at%20the%20mill",
+        {},
+        env,
+      ),
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("2");
+    expect(await response.json()).toEqual({
+      error: "Search is busy, try again in a moment",
+    });
   });
 });
 
