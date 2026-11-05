@@ -278,6 +278,16 @@ describe("embedder image", () => {
     }
   });
 
+  test("fetches every .deb from a dated Ubuntu snapshot that survives a newer upload", () => {
+    const debs = dockerfile.match(/^ADD \S+\.deb /gm) ?? [];
+    expect(debs.length).toBeGreaterThan(0);
+    for (const deb of debs) {
+      expect(deb).toMatch(
+        /^ADD https:\/\/snapshot\.ubuntu\.com\/ubuntu\/\d{8}T\d{6}Z\/pool\//,
+      );
+    }
+  });
+
   test("checks every download against a pinned sha256", () => {
     const pins = [
       ...dockerfile.matchAll(/^ARG (\w+_SHA256)=([0-9a-f]{64})$/gm),
