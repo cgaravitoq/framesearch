@@ -1,31 +1,33 @@
-import type { Film, Hit, SearchReply } from "@framesearch/schema";
-
-export interface SimilarReply {
-  shotId: number;
-  results: Hit[];
-}
-
-interface FilmsReply {
-  films: Film[];
-}
-
-interface LoggedSearch {
-  logged: boolean;
-  id: number | null;
-}
+import type {
+  ClickLogReply,
+  ClickLogRequest,
+  Film,
+  FilmsReply,
+  SearchLogReply,
+  SearchReply,
+  SimilarReply,
+} from "@framesearch/schema";
 
 const SEARCH_K = 24;
 const SIMILAR_K = 12;
 
 async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal });
-  const body: unknown = await response.json();
+  const body = await readJson(response);
   if (!response.ok) {
     throw new Error(
       errorMessage(body) ?? `the server answered ${response.status}`,
     );
   }
   return body as T;
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return JSON.parse(await response.text());
+  } catch {
+    return null;
+  }
 }
 
 function errorMessage(body: unknown): string | null {
@@ -63,9 +65,9 @@ export async function similarShots(
 }
 
 export async function logSearch(reply: SearchReply): Promise<number | null> {
-  const logged = await postJson<LoggedSearch>("/api/log/search", {
-    query: reply.query,
+  const logged = await postJson<SearchLogReply>("/api/log/search", {
     film: reply.film,
+    query: reply.query,
     shotIds: reply.results.map((shot) => shot.shotId),
   });
   return logged?.id ?? null;
@@ -74,8 +76,10 @@ export async function logSearch(reply: SearchReply): Promise<number | null> {
 export async function logClick(
   searchId: number,
   shotId: number,
+  rank: number | null,
 ): Promise<void> {
-  await postJson("/api/log/click", { searchId, shotId });
+  const body: ClickLogRequest = { rank, searchId, shotId };
+  await postJson<ClickLogReply>("/api/log/click", body);
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {

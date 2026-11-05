@@ -1,6 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { encodeVectors, vectorsKey } from "@framesearch/schema";
+import { describe, expect, spyOn, test } from "bun:test";
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import {
+  encodeVectors,
+  type SearchReply,
+  vectorsKey,
+} from "@framesearch/schema";
 import { createApp } from "../src/app.ts";
+import type { Env } from "../src/env.ts";
 import { fakeDb, fakeEnv, fakeR2, fakeRateLimit } from "./support.ts";
 
 describe("films", () => {
@@ -29,6 +35,28 @@ describe("films", () => {
         },
       ],
     });
+  });
+
+  test("answers an unhandled failure without its error", async () => {
+    const db = {
+      prepare: () => {
+        throw new Error(LEAK);
+      },
+    } as unknown as D1Database;
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/films",
+        {},
+        fakeEnv({ DB: db }),
+      );
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Something went wrong" }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   test("answers an unknown API path with JSON", async () => {
@@ -142,7 +170,7 @@ describe("search parameters", () => {
     expect(response.status).toBe(400);
   });
 
-  test("answers 503 while the embeddings secrets are missing", async () => {
+  test("answers 503 without naming any secret", async () => {
     const response = await createApp().request(
       "/api/search?q=fire",
       {},
@@ -150,8 +178,7 @@ describe("search parameters", () => {
     );
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
-      error:
-        "search is unavailable: EMBED_URL, EMBED_API_KEY and EMBED_MODEL are not set",
+      error: "Search is temporarily unavailable",
     });
   });
 
@@ -167,7 +194,134 @@ describe("search parameters", () => {
   });
 });
 
+describe("search cache", () => {
+  test("serves a repeated query from memory, whatever its case and spacing", async () => {
+    const fixture = searchFixture("night-of-the-living-dead", 1);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=fire&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.status).toBe(200);
+      expect(first.headers.get("x-cache")).toBe("miss");
+      const second = await createApp().request(
+        "/api/search?q=%20%20FIRE%20&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("hit");
+      const reply = (await second.json()) as SearchReply;
+      expect(reply.query).toBe("FIRE");
+      expect(reply.results.map((hit) => hit.shotId)).toEqual([1]);
+      expect(embeddings.calls()).toBe(1);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("drops the cached results and reloads the vectors after a republish", async () => {
+    const fixture = searchFixture("dawn-of-the-dead", 5);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=graveyard&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.headers.get("x-cache")).toBe("miss");
+      fixture.setVersion(6);
+      const second = await createApp().request(
+        "/api/search?q=graveyard&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("miss");
+      expect(embeddings.calls()).toBe(2);
+      expect(fixture.vectorsReads()).toBe(2);
+    } finally {
+      embeddings.restore();
+    }
+  });
+
+  test("answers an embedding failure with a generic 502", async () => {
+    const fixture = searchFixture("the-terror", 1);
+    const spy = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error(LEAK);
+    }) as unknown as typeof fetch);
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/search?q=castle",
+        {},
+        fixture.env,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Search is temporarily unavailable" }),
+      );
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  test("reloads a film republished with the same shot ids", async () => {
+    const fixture = searchFixture("white-zombie", 7);
+    const embeddings = stubEmbeddings();
+    try {
+      const first = await createApp().request(
+        "/api/search?q=mill&k=1",
+        {},
+        fixture.env,
+      );
+      expect(first.headers.get("x-cache")).toBe("miss");
+      fixture.republishVectors();
+      const second = await createApp().request(
+        "/api/search?q=mill&k=1",
+        {},
+        fixture.env,
+      );
+      expect(second.status).toBe(200);
+      expect(second.headers.get("x-cache")).toBe("miss");
+      expect(fixture.vectorsReads()).toBe(2);
+    } finally {
+      embeddings.restore();
+    }
+  });
+});
+
 describe("similar", () => {
+  test("answers a failed vector load without its error", async () => {
+    const { db } = fakeDb({
+      rows: (sql) =>
+        sql.includes("MAX(s.id)") ? [{ slug: "the-bat", version: 9 }] : [],
+    });
+    const frames = {
+      get: async () => {
+        throw new Error(LEAK);
+      },
+      head: async () => null,
+    } as unknown as R2Bucket;
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await createApp().request(
+        "/api/similar?id=1",
+        {},
+        fakeEnv({ DB: db, FRAMES: frames }),
+      );
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe(
+        JSON.stringify({ error: "Something went wrong" }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   test("never answers with another frame of the shot it was asked about", async () => {
     const film = "night-of-the-living-dead";
     const shot = (id: number, shotStart: number, shotEnd: number) => ({
@@ -184,7 +338,7 @@ describe("similar", () => {
     const shots = [shot(1, 0, 4), shot(2, 0, 4), shot(3, 4, 9)];
     const { db } = fakeDb({
       rows: (sql) => {
-        if (sql.includes("SELECT slug FROM films")) return [{ slug: film }];
+        if (sql.includes("MAX(s.id)")) return [{ slug: film, version: 3 }];
         if (sql.includes("sibling")) return [{ id: 1 }, { id: 2 }];
         return shots;
       },
@@ -232,6 +386,25 @@ describe("rate limit", () => {
 });
 
 const IP = "203.0.113.9";
+const LEAK = "EMBED_API_KEY sk-secret at /srv/framesearch/embeddings.ts";
+const CHUNK_BYTES = 4096;
+const MAX_CHUNKS = 4;
+
+function chunkedLogRequest(pulls: { count: number }): Request {
+  const filler = "a".repeat(CHUNK_BYTES - 12);
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls.count += 1;
+      controller.enqueue(new TextEncoder().encode(`{"query":"${filler}"}`));
+    },
+  });
+  const init = {
+    body,
+    headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+    method: "POST",
+  } as RequestInit;
+  return new Request("http://localhost/api/log/search", init);
+}
 
 function logRequest(
   path: string,
@@ -272,6 +445,17 @@ describe("log routes", () => {
       JSON.stringify({ query: "fire", shotIds: Array(5000).fill(1) }),
     );
     expect(response.status).toBe(413);
+  });
+
+  test("stop reading a chunked body once it passes the size limit", async () => {
+    const pulls = { count: 0 };
+    const response = await createApp().request(
+      chunkedLogRequest(pulls),
+      undefined,
+      fakeEnv(),
+    );
+    expect(response.status).toBe(413);
+    expect(pulls.count).toBeLessThan(MAX_CHUNKS);
   });
 
   test("record the query, film and shots without the address", async () => {
@@ -322,8 +506,116 @@ describe("log routes", () => {
     expect(insert?.args).not.toContain(IP);
   });
 
+  test("record the rank the visitor saw over the stored one", async () => {
+    const { db, queries } = fakeDb({
+      rows: [{ shot_ids: JSON.stringify([11, 22, 33]) }],
+    });
+    const response = await createApp().request(
+      "/api/log/click",
+      {
+        body: JSON.stringify({ rank: 5, searchId: 42, shotId: 22 }),
+        headers: { "cf-connecting-ip": IP, "content-type": "application/json" },
+        method: "POST",
+      },
+      fakeEnv({ DB: db }),
+    );
+    expect(await response.json()).toEqual({ id: null, logged: true, rank: 5 });
+    const insert = queries.find((query) =>
+      query.sql.includes("INSERT INTO search_click"),
+    );
+    expect(insert?.args.slice(0, 3)).toEqual([42, 22, 5]);
+  });
+
+  test("refuse a click whose rank is not a positive integer", async () => {
+    for (const rank of ["0", "-1", "1.5", '"2"', "true"]) {
+      const response = await logRequest(
+        "/api/log/click",
+        `{"searchId":42,"shotId":22,"rank":${rank}}`,
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
   test("refuse a click without a search id", async () => {
     const response = await logRequest("/api/log/click", '{"shotId":22}');
     expect(response.status).toBe(400);
   });
 });
+
+interface SearchFixture {
+  env: Env;
+  republishVectors: () => void;
+  setVersion: (version: number) => void;
+  vectorsReads: () => number;
+}
+
+function searchFixture(film: string, version: number): SearchFixture {
+  let current = version;
+  const shots = [
+    {
+      caption: null,
+      film,
+      id: 1,
+      idx: 1,
+      shotEnd: 4,
+      shotStart: 0,
+      tags: "[]",
+      time: 0,
+      title: "Night of the Living Dead",
+    },
+    {
+      caption: null,
+      film,
+      id: 2,
+      idx: 2,
+      shotEnd: 9,
+      shotStart: 4,
+      tags: "[]",
+      time: 4,
+      title: "Night of the Living Dead",
+    },
+  ];
+  const { db } = fakeDb({
+    rows: (sql) => {
+      if (sql.includes("MAX(s.id)")) return [{ slug: film, version: current }];
+      if (sql.includes("bm25")) return [];
+      return shots;
+    },
+  });
+  const vectors = encodeVectors({
+    captions: [],
+    dim: 2,
+    frames: [
+      { shotId: 1, values: Int8Array.from([127, 0]) },
+      { shotId: 2, values: Int8Array.from([0, 127]) },
+    ],
+  });
+  const frames = fakeR2({ [vectorsKey(film)]: vectors });
+  return {
+    env: fakeEnv({
+      DB: db,
+      EMBED_API_KEY: "key",
+      EMBED_MODEL: "model",
+      EMBED_URL: "http://embed.test/v1/embeddings",
+      FRAMES: frames.bucket,
+    }),
+    republishVectors: () => frames.put(vectorsKey(film), vectors),
+    setVersion: (next) => {
+      current = next;
+    },
+    vectorsReads: () =>
+      frames.keys.filter((key) => key === vectorsKey(film)).length,
+  };
+}
+
+function stubEmbeddings(): { calls: () => number; restore: () => void } {
+  let calls = 0;
+  const answer = (async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ data: [{ embedding: [1, 0] }] }), {
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const spy = spyOn(globalThis, "fetch").mockImplementation(answer);
+  return { calls: () => calls, restore: () => spy.mockRestore() };
+}

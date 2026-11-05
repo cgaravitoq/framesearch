@@ -1,23 +1,18 @@
 import { MAX_QUERY_LENGTH, parseFilmSlug } from "@framesearch/core";
+import type { ClickLogReply, SearchLogReply } from "@framesearch/schema";
 import type { Env } from "./env.ts";
 
 const MAX_BODY_BYTES = 8192;
 const MAX_LOGGED_SHOTS = 200;
 
-export interface Logged {
-  logged: boolean;
-  id: number | null;
-  rank?: number | null;
-}
-
-export type LogResult =
-  | { ok: true; body: Logged }
+export type LogResult<T> =
+  | { ok: true; body: T }
   | { ok: false; status: number; error: string };
 
 export async function logSearch(
   env: Env,
   request: Request,
-): Promise<LogResult> {
+): Promise<LogResult<SearchLogReply>> {
   const read = await readJson(request);
   if (!read.ok) return read;
   const query =
@@ -64,7 +59,10 @@ export async function logSearch(
   }
 }
 
-export async function logClick(env: Env, request: Request): Promise<LogResult> {
+export async function logClick(
+  env: Env,
+  request: Request,
+): Promise<LogResult<ClickLogReply>> {
   const read = await readJson(request);
   if (!read.ok) return read;
   const searchId = positiveInteger(read.body.searchId);
@@ -83,13 +81,18 @@ export async function logClick(env: Env, request: Request): Promise<LogResult> {
       error: "shotId must be a positive integer",
     };
   }
+  const declaredRank = read.body.rank ?? null;
+  const givenRank =
+    declaredRank === null ? null : positiveInteger(declaredRank);
+  if (declaredRank !== null && givenRank === null) {
+    return {
+      ok: false,
+      status: 400,
+      error: "rank must be a positive integer or null",
+    };
+  }
   try {
-    const row = await env.DB.prepare(
-      "SELECT shot_ids FROM search_log WHERE id = ?1",
-    )
-      .bind(searchId)
-      .first<{ shot_ids: string }>();
-    const rank = rankOf(row?.shot_ids ?? null, shotId);
+    const rank = givenRank ?? (await storedRank(env, searchId, shotId));
     await env.DB.prepare(
       "INSERT INTO search_click (search_id, shot_id, rank, created_at) VALUES (?1, ?2, ?3, ?4)",
     )
@@ -101,9 +104,30 @@ export async function logClick(env: Env, request: Request): Promise<LogResult> {
   }
 }
 
-type ReadResult =
-  | { ok: true; body: Record<string, unknown> }
-  | { ok: false; status: number; error: string };
+async function storedRank(
+  env: Env,
+  searchId: number,
+  shotId: number,
+): Promise<number | null> {
+  const row = await env.DB.prepare(
+    "SELECT shot_ids FROM search_log WHERE id = ?1",
+  )
+    .bind(searchId)
+    .first<{ shot_ids: string }>();
+  return rankOf(row?.shot_ids ?? null, shotId);
+}
+
+interface Failure {
+  ok: false;
+  status: number;
+  error: string;
+}
+
+type ReadResult = { ok: true; body: Record<string, unknown> } | Failure;
+
+type TextResult = { ok: true; text: string } | Failure;
+
+const UTF8 = new TextDecoder();
 
 async function readJson(request: Request): Promise<ReadResult> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -114,25 +138,48 @@ async function readJson(request: Request): Promise<ReadResult> {
       error: "the log routes take application/json only",
     };
   }
-  const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return tooLarge();
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    return tooLarge();
-  }
-  let body: unknown;
+  const body = await readText(request);
+  if (!body.ok) return body;
+  let parsed: unknown;
   try {
-    body = JSON.parse(text);
+    parsed = JSON.parse(body.text);
   } catch {
     return { ok: false, status: 400, error: "the body must be a JSON object" };
   }
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return { ok: false, status: 400, error: "the body must be a JSON object" };
   }
-  return { ok: true, body: body as Record<string, unknown> };
+  return { ok: true, body: parsed as Record<string, unknown> };
 }
 
-function tooLarge(): ReadResult {
+async function readText(request: Request): Promise<TextResult> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > MAX_BODY_BYTES) return tooLarge();
+  const stream = request.body;
+  if (stream === null) return { ok: true, text: "" };
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return { ok: true, text: UTF8.decode(bytes) };
+}
+
+function tooLarge(): Failure {
   return {
     ok: false,
     status: 413,
