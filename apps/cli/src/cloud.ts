@@ -8,8 +8,14 @@ const OUTPUT_TAIL = 400;
 
 export const UPLOAD_CONCURRENCY = 8;
 
+export interface StoredObject {
+  key: string;
+  file: string;
+  contentType: string;
+}
+
 export interface Cloud {
-  putObject(key: string, file: string, contentType: string): Promise<void>;
+  putObjects(objects: readonly StoredObject[]): Promise<void>;
   deleteObject(key: string): Promise<void>;
   executeSql(sql: string): Promise<void>;
   publishedFrames(film: string): Promise<number[]>;
@@ -27,22 +33,54 @@ export function databaseName(): string {
   return process.env.FRAMESEARCH_D1_DATABASE ?? "framesearch-staging";
 }
 
-export async function putObject(
-  key: string,
-  file: string,
+export async function putObjects(
+  objects: readonly StoredObject[],
+): Promise<void> {
+  const byType = new Map<string, StoredObject[]>();
+  for (const object of objects) {
+    const sameType = byType.get(object.contentType);
+    if (sameType === undefined) {
+      byType.set(object.contentType, [object]);
+      continue;
+    }
+    sameType.push(object);
+  }
+  for (const [contentType, batch] of byType) {
+    await bulkPut(batch, contentType);
+  }
+}
+
+async function bulkPut(
+  objects: readonly StoredObject[],
   contentType: string,
 ): Promise<void> {
-  await wrangler([
-    "r2",
-    "object",
-    "put",
-    `${bucketName()}/${key}`,
-    "--file",
-    resolve(file),
-    "--content-type",
-    contentType,
-    "--remote",
-  ]);
+  const dir = await mkdtemp(join(tmpdir(), "framesearch-bulk-"));
+  try {
+    const manifest = join(dir, "manifest.json");
+    await writeFile(
+      manifest,
+      JSON.stringify(
+        objects.map((object) => ({
+          key: object.key,
+          file: resolve(object.file),
+        })),
+      ),
+    );
+    await wrangler([
+      "r2",
+      "bulk",
+      "put",
+      bucketName(),
+      "--filename",
+      manifest,
+      "--content-type",
+      contentType,
+      "--remote",
+      "--force",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 export async function deleteObject(key: string): Promise<void> {
@@ -89,7 +127,7 @@ export async function publishedFrames(film: string): Promise<number[]> {
 }
 
 export const wranglerCloud: Cloud = {
-  putObject,
+  putObjects,
   deleteObject,
   executeSql,
   publishedFrames,

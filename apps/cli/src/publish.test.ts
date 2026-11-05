@@ -72,30 +72,68 @@ function writeFrames(dir: string, shots: readonly StoredShot[]): void {
   for (const shot of shots) writeFileSync(frameFile(dir, SLUG, shot.idx), "");
 }
 
-function fakeCloud(published: number[]): { cloud: Cloud; deleted: string[] } {
-  const deleted: string[] = [];
+function fakeCloud(
+  published: number[],
+  failAt?: "rows",
+): { cloud: Cloud; calls: string[] } {
+  const calls: string[] = [];
   const cloud: Cloud = {
-    putObject: async () => {},
-    deleteObject: async (key) => {
-      deleted.push(key);
+    putObjects: async (objects) => {
+      calls.push(`put ${objects.map((object) => object.key).join(",")}`);
     },
-    executeSql: async () => {},
+    deleteObject: async (key) => {
+      calls.push(`delete ${key}`);
+    },
+    executeSql: async () => {
+      if (failAt === "rows") throw new Error("D1 refused the batch");
+      calls.push("rows");
+    },
     publishedFrames: async () => published,
   };
-  return { cloud, deleted };
+  return { cloud, calls };
+}
+
+function frameKeys(shots: readonly StoredShot[]): string {
+  return shots.map((shot) => `frames/${SLUG}/${shot.idx}.jpg`).join(",");
 }
 
 describe("publish", () => {
+  test("uploads the frames, then the rows, then the vectors last", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls } = fakeCloud([]);
+    await publishFilm(SLUG, { dataDir: dir, cloud });
+    expect(calls).toEqual([
+      `put ${frameKeys(shots)}`,
+      "rows",
+      `put vectors/${SLUG}.bin`,
+    ]);
+  });
+
+  test("leaves no vectors behind when the rows fail to land", async () => {
+    const dir = dataDir();
+    const shots = seed(dir);
+    writeVectors(dir, vectorsFor(shots));
+    writeFrames(dir, shots);
+    const { cloud, calls } = fakeCloud([], "rows");
+    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
+      /D1 refused the batch/,
+    );
+    expect(calls).toEqual([`put ${frameKeys(shots)}`]);
+  });
+
   test("removes the frames an earlier, longer cut left in R2", async () => {
     const dir = dataDir();
     const shots = seed(dir);
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
-    const { cloud, deleted } = fakeCloud([0, 1, 2, 3, 4]);
+    const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4]);
     await publishFilm(SLUG, { dataDir: dir, cloud });
-    expect(deleted.sort()).toEqual([
-      `frames/${SLUG}/3.jpg`,
-      `frames/${SLUG}/4.jpg`,
+    expect(calls.filter((call) => call.startsWith("delete "))).toEqual([
+      `delete frames/${SLUG}/3.jpg`,
+      `delete frames/${SLUG}/4.jpg`,
     ]);
   });
 
@@ -174,14 +212,15 @@ describe("publish", () => {
 });
 
 describe("unpublish", () => {
-  test("removes the published frames a missing local store does not list", async () => {
-    const { cloud, deleted } = fakeCloud([0, 1, 2]);
+  test("removes the vectors, then the rows, then the frames", async () => {
+    const { cloud, calls } = fakeCloud([0, 1, 2]);
     await unpublishFilm(SLUG, { dataDir: dataDir(), cloud });
-    expect(deleted.sort()).toEqual([
-      `frames/${SLUG}/0.jpg`,
-      `frames/${SLUG}/1.jpg`,
-      `frames/${SLUG}/2.jpg`,
-      `vectors/${SLUG}.bin`,
+    expect(calls).toEqual([
+      `delete vectors/${SLUG}.bin`,
+      "rows",
+      `delete frames/${SLUG}/0.jpg`,
+      `delete frames/${SLUG}/1.jpg`,
+      `delete frames/${SLUG}/2.jpg`,
     ]);
   });
 });
