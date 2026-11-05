@@ -70,7 +70,7 @@ export async function embedQuery(
   }
 }
 
-export type Prewarm = "warm" | "skipped" | "limited";
+type Prewarm = "warm" | "skipped" | "limited";
 
 export class EmbedderBusy extends Error {
   constructor() {
