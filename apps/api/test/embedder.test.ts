@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { embedText } from "@framesearch/core";
 import {
   EMBEDDER_INSTANCES,
@@ -348,21 +348,20 @@ describe("embedder image", () => {
     expect(dockerfile).toMatch(/^ARG LLAMA_TAG=b\d+$/m);
     expect(dockerfile).toMatch(/^ARG MODEL_COMMIT=[0-9a-f]{40}$/m);
     const downloads = dockerfile.match(/^ADD (https:\/\/\S+)/gm) ?? [];
-    expect(downloads).toHaveLength(4);
+    expect(downloads).toHaveLength(2);
     for (const download of downloads) {
-      expect(download).toMatch(
-        /\$\{LLAMA_TAG\}|\$\{MODEL_COMMIT\}|_[0-9][^/]*_amd64\.deb$/,
-      );
+      expect(download).toMatch(/\$\{LLAMA_TAG\}|\$\{MODEL_COMMIT\}/);
     }
   });
 
-  test("fetches every .deb from a dated Ubuntu snapshot that survives a newer upload", () => {
-    const debs = dockerfile.match(/^ADD \S+\.deb /gm) ?? [];
-    expect(debs.length).toBeGreaterThan(0);
+  test("copies every .deb from the vendored build context, never the network", () => {
+    expect(dockerfile).not.toMatch(/^ADD \S+\.deb /m);
+    const debs = [...dockerfile.matchAll(/^COPY vendor\/(\S+_amd64\.deb) /gm)];
+    expect(debs).toHaveLength(2);
     for (const deb of debs) {
-      expect(deb).toMatch(
-        /^ADD https:\/\/snapshot\.ubuntu\.com\/ubuntu\/\d{8}T\d{6}Z\/pool\//,
-      );
+      expect(
+        existsSync(`${import.meta.dir}/../../embedder/vendor/${deb[1]}`),
+      ).toBe(true);
     }
   });
 

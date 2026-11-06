@@ -16,8 +16,8 @@ RUN echo "${LLAMA_SHA256}  /tmp/llama.tar.gz" | sha256sum -c - \
 ADD https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/${MODEL_COMMIT}/embeddinggemma-2-Q8_0.gguf /models/embeddinggemma-2-Q8_0.gguf
 RUN echo "${MODEL_SHA256}  /models/embeddinggemma-2-Q8_0.gguf" | sha256sum -c -
 
-ADD https://snapshot.ubuntu.com/ubuntu/20261101T000000Z/pool/main/g/gcc-14/libgomp1_14.2.0-4ubuntu2~24.04.1_amd64.deb /tmp/libgomp1.deb
-ADD https://snapshot.ubuntu.com/ubuntu/20261101T000000Z/pool/main/b/brotli/libbrotli1_1.1.0-2ubuntu0.1_amd64.deb /tmp/libbrotli1.deb
+COPY vendor/libgomp1_14.2.0-4ubuntu2~24.04.1_amd64.deb /tmp/libgomp1.deb
+COPY vendor/libbrotli1_1.1.0-2ubuntu0.1_amd64.deb /tmp/libbrotli1.deb
 RUN echo "${LIBGOMP_SHA256}  /tmp/libgomp1.deb" | sha256sum -c - \
   && echo "${LIBBROTLI_SHA256}  /tmp/libbrotli1.deb" | sha256sum -c - \
   && dpkg-deb --extract /tmp/libgomp1.deb / \
