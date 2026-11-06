@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { parseCases, runEval } from "./eval.ts";
+import { evaluate, parseCases, runEval } from "./eval.ts";
 
 const realFetch = globalThis.fetch;
 const requested: URL[] = [];
@@ -118,4 +118,28 @@ test("a query whose ranges span several films is rejected", () => {
       },
     ]),
   ).toThrow("query 0 expects ranges in several films (night, wwz)");
+});
+
+test("latency leaves out the wait for the rate limit", async () => {
+  let calls = 0;
+  globalThis.fetch = Object.assign(
+    async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("slow down", {
+          status: 429,
+          headers: { "retry-after": "0.3" },
+        });
+      }
+      return Response.json({ results: [] });
+    },
+    { preconnect: realFetch.preconnect },
+  );
+  const report = await evaluate(
+    "https://site.test",
+    cases.slice(0, 1),
+    "per-film",
+  );
+  expect(calls).toBe(2);
+  expect(report.latency.p95).toBeLessThan(300);
 });

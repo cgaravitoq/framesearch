@@ -100,13 +100,12 @@ export async function evaluate(
   const samples: number[] = [];
   const ranks: (number | undefined)[] = [];
   for (const testCase of cases) {
-    const started = performance.now();
-    const hits = await search(
+    const { hits, elapsed } = await search(
       baseUrl,
       testCase.query,
       scope === "per-film" ? testCase.film : undefined,
     );
-    samples.push(performance.now() - started);
+    samples.push(elapsed);
     ranks.push(relevanceRank(hits, testCase.expected));
   }
   const metrics = score(ranks);
@@ -183,11 +182,12 @@ async function search(
   baseUrl: string,
   query: string,
   film: string | undefined,
-): Promise<SiteHit[]> {
+): Promise<{ hits: SiteHit[]; elapsed: number }> {
   const url = new URL(`${baseUrl}/api/search`);
   url.searchParams.set("q", query);
   url.searchParams.set("k", String(EVAL_K));
   if (film !== undefined) url.searchParams.set("film", film);
+  let started = performance.now();
   let response = await fetch(url);
   for (
     let retry = 0;
@@ -195,8 +195,10 @@ async function search(
     retry += 1
   ) {
     await Bun.sleep(1000 * (Number(response.headers.get("retry-after")) || 60));
+    started = performance.now();
     response = await fetch(url);
   }
+  const elapsed = performance.now() - started;
   if (!response.ok) {
     throw new Error(
       `${url} answered ${response.status}: ${(await response.text()).slice(0, 200)}`,
@@ -206,9 +208,12 @@ async function search(
   if (!isRecord(body) || !Array.isArray(body.results)) {
     throw new Error(`${url} answered without a results array`);
   }
-  return body.results.map((hit: unknown, at) =>
-    toHit(hit, `${url} result ${at}`),
-  );
+  return {
+    hits: body.results.map((hit: unknown, at) =>
+      toHit(hit, `${url} result ${at}`),
+    ),
+    elapsed,
+  };
 }
 
 function parseExpected(raw: unknown, where: string): Expected {
