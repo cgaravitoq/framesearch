@@ -54,3 +54,11 @@ test("the router knows the landing, search and about pages", () => {
     "/search",
   ]);
 });
+
+describe("the search page", () => {
+  test("waits for three characters before it searches", async () => {
+    const html = await render("/search?q=ab");
+    expect(html).toContain("or start from one of these.");
+    expect(html).not.toContain("Searching for");
+  });
+});

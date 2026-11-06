@@ -26,6 +26,7 @@ import { timecode } from "./lib/time";
 import { SearchPill } from "./search-pill";
 
 const DEBOUNCE_MS = 320;
+const MIN_QUERY_LENGTH = 3;
 const LOG_SETTLE_MS = 1200;
 const SIMILAR_K = 8;
 const SIZES = [12, 24, 48];
@@ -66,7 +67,7 @@ function captionOf(shot: Hit): string {
 export function SearchPage({ start }: { start: SearchStart }) {
   const navigate = useNavigate();
   const [q, setQ] = useState(start.q);
-  const [term, setTerm] = useState(start.q.trim());
+  const [term, setTerm] = useState(searchable(start.q));
   const [k, setK] = useState(12);
   const [selected, setSelected] = useState<Hit | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -94,12 +95,12 @@ export function SearchPage({ start }: { start: SearchStart }) {
   }, []);
 
   useEffect(() => {
-    const trimmed = q.trim();
-    if (trimmed === "") {
+    const next = searchable(q);
+    if (next === "") {
       setTerm("");
       return;
     }
-    const timer = window.setTimeout(() => setTerm(trimmed), DEBOUNCE_MS);
+    const timer = window.setTimeout(() => setTerm(next), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [q]);
 
@@ -327,15 +328,20 @@ export function SearchPage({ start }: { start: SearchStart }) {
   );
 }
 
+function searchable(q: string): string {
+  const trimmed = q.trim();
+  return trimmed.length < MIN_QUERY_LENGTH ? "" : trimmed;
+}
+
 function resultsOf(
   q: string,
   term: string,
   search: { isFetching: boolean; error: Error | null },
   found: Found | undefined,
 ): Results {
-  const trimmed = q.trim();
-  if (trimmed === "") return { status: "idle" };
-  if (trimmed !== term || search.isFetching) return { status: "loading" };
+  const wanted = searchable(q);
+  if (wanted === "") return { status: "idle" };
+  if (wanted !== term || search.isFetching) return { status: "loading" };
   if (search.error !== null) {
     return {
       status: "error",
