@@ -201,7 +201,7 @@ export function ProjectorHero({
       const ox = px(LENS.x);
       const oy = py(LENS.y);
       const lower = narrow ? -0.1 : 0.07;
-      const upper = Math.atan2(-oy, w - ox);
+      const upper = Math.atan2(h * 0.23 - oy, w - ox);
       const dir = (upper + lower) / 2;
       const half = (lower - upper) / 2;
       const apex = (LENS.r * k) / Math.tan(half);
