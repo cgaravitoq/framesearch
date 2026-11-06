@@ -1,4 +1,9 @@
-import type { Hit, SearchReply } from "@framesearch/schema";
+import {
+  FRAME_WIDTH,
+  type Hit,
+  type SearchReply,
+  THUMB_WIDTH,
+} from "@framesearch/schema";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -58,6 +63,10 @@ export interface SearchStart {
 }
 
 let toastId = 1;
+
+function srcSetOf(shot: Hit): string {
+  return `${shot.thumbUrl} ${THUMB_WIDTH}w, ${shot.frameUrl} ${FRAME_WIDTH}w`;
+}
 
 function captionOf(shot: Hit): string {
   return shot.caption ?? `${shot.title} at ${timecode(shot.time)}`;
@@ -440,6 +449,8 @@ function Card({
       >
         <img
           src={shot.frameUrl}
+          srcSet={srcSetOf(shot)}
+          sizes="(max-width: 639px) 100vw, (max-width: 1279px) 50vw, 340px"
           alt={captionOf(shot)}
           loading="lazy"
           className={`block aspect-[4/3] w-full rounded-[var(--radius-sm)] bg-tint object-cover ${
@@ -677,6 +688,8 @@ function Detail({
 
       <img
         src={shot.frameUrl}
+        srcSet={srcSetOf(shot)}
+        sizes="(max-width: 1023px) 100vw, 440px"
         alt={captionOf(shot)}
         className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
       />
@@ -729,7 +742,9 @@ function Detail({
                   aria-label={`Open similar shot at ${timecode(entry.time)}: ${captionOf(entry)}`}
                 >
                   <img
-                    src={entry.frameUrl}
+                    src={entry.thumbUrl}
+                    srcSet={srcSetOf(entry)}
+                    sizes="(max-width: 639px) 50vw, (max-width: 1023px) 25vw, 110px"
                     alt=""
                     loading="lazy"
                     className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover group-hover:opacity-90"
