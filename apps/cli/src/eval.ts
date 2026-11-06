@@ -6,6 +6,7 @@ interface Expected {
 
 interface EvalCase {
   query: string;
+  film: string;
   expected: Expected[];
 }
 
@@ -34,6 +35,7 @@ export interface Thresholds {
 
 const EVAL_K = 10;
 const HIT_LIMIT = 5;
+const RATE_RETRIES = 3;
 
 interface SiteHit {
   film: string;
@@ -56,25 +58,54 @@ export function parseCases(raw: unknown): EvalCase[] {
     if (!Array.isArray(entry.expected) || entry.expected.length === 0) {
       throw new Error(`${where}.expected must be a non-empty array`);
     }
-    return {
-      query: entry.query,
-      expected: entry.expected.map((range: unknown, at) =>
-        parseExpected(range, `${where}.expected[${at}]`),
-      ),
-    };
+    const expected = entry.expected.map((range: unknown, at) =>
+      parseExpected(range, `${where}.expected[${at}]`),
+    );
+    const films = [...new Set(expected.map((range) => range.film))];
+    const [film] = films;
+    if (film === undefined || films.length > 1) {
+      throw new Error(
+        `${where} expects ranges in several films (${films.join(", ")}); keep each query to one film`,
+      );
+    }
+    return { query: entry.query, film, expected };
   });
+}
+
+export interface EvalRun {
+  gated: EvalReport;
+  crossFilm: EvalReport | { error: string };
+  failures: string[];
+}
+
+export async function runEval(
+  baseUrl: string,
+  cases: readonly EvalCase[],
+  thresholds: Thresholds,
+): Promise<EvalRun> {
+  const gated = await evaluate(baseUrl, cases, "per-film");
+  const crossFilm = await evaluate(baseUrl, cases, "all-films").catch(
+    (error: unknown) => ({
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return { gated, crossFilm, failures: belowThresholds(gated, thresholds) };
 }
 
 export async function evaluate(
   baseUrl: string,
   cases: readonly EvalCase[],
+  scope: "per-film" | "all-films",
 ): Promise<EvalReport> {
   const samples: number[] = [];
   const ranks: (number | undefined)[] = [];
   for (const testCase of cases) {
-    const started = performance.now();
-    const hits = await search(baseUrl, testCase.query);
-    samples.push(performance.now() - started);
+    const { hits, elapsed } = await search(
+      baseUrl,
+      testCase.query,
+      scope === "per-film" ? testCase.film : undefined,
+    );
+    samples.push(elapsed);
     ranks.push(relevanceRank(hits, testCase.expected));
   }
   const metrics = score(ranks);
@@ -147,11 +178,27 @@ function matches(hit: SiteHit, expected: readonly Expected[]): boolean {
   );
 }
 
-async function search(baseUrl: string, query: string): Promise<SiteHit[]> {
+async function search(
+  baseUrl: string,
+  query: string,
+  film: string | undefined,
+): Promise<{ hits: SiteHit[]; elapsed: number }> {
   const url = new URL(`${baseUrl}/api/search`);
   url.searchParams.set("q", query);
   url.searchParams.set("k", String(EVAL_K));
-  const response = await fetch(url);
+  if (film !== undefined) url.searchParams.set("film", film);
+  let started = performance.now();
+  let response = await fetch(url);
+  for (
+    let retry = 0;
+    response.status === 429 && retry < RATE_RETRIES;
+    retry += 1
+  ) {
+    await Bun.sleep(1000 * (Number(response.headers.get("retry-after")) || 60));
+    started = performance.now();
+    response = await fetch(url);
+  }
+  const elapsed = performance.now() - started;
   if (!response.ok) {
     throw new Error(
       `${url} answered ${response.status}: ${(await response.text()).slice(0, 200)}`,
@@ -161,9 +208,12 @@ async function search(baseUrl: string, query: string): Promise<SiteHit[]> {
   if (!isRecord(body) || !Array.isArray(body.results)) {
     throw new Error(`${url} answered without a results array`);
   }
-  return body.results.map((hit: unknown, at) =>
-    toHit(hit, `${url} result ${at}`),
-  );
+  return {
+    hits: body.results.map((hit: unknown, at) =>
+      toHit(hit, `${url} result ${at}`),
+    ),
+    elapsed,
+  };
 }
 
 function parseExpected(raw: unknown, where: string): Expected {

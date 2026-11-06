@@ -62,7 +62,7 @@ You need a Cloudflare account with Workers, D1, R2 and Containers, plus Bun 1.4 
 5. Index a film on your machine: `bun run framesearch index night.mp4 --title "Night of the Living Dead"`. It needs `OPENROUTER_API_KEY` for the captions.
 6. Publish it: `bun run framesearch publish night-of-the-living-dead` writes the frames and vectors to R2 and the rows to D1.
 
-Merging to main also deploys: `.github/workflows/deploy.yml` wants `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, applies migrations, deploys, warms the embedder with the same prewarm call, then runs `framesearch eval` against the live URL and rolls the Worker back when hit@5 or MRR@10 fall below the thresholds.
+Merging to main also deploys: `.github/workflows/deploy.yml` wants `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, applies migrations, deploys, warms the embedder with the same prewarm call, then runs `framesearch eval` against the live URL, which searches each query within its own film, and rolls the Worker back when that per-film hit@5 or MRR@10 fall below the thresholds; the cross-film score prints alongside as information only.
 Publish a film before that first merge, or the eval has nothing to find.
 
 Features ship behind booleans in the `vars` of `apps/api/wrangler.jsonc`, read through `readFlags` and exposed at `/api/flags`; a flag that is missing or not a boolean is off.

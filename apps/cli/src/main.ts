@@ -2,10 +2,9 @@ import { join } from "node:path";
 import { bucketName, databaseName } from "./cloud.ts";
 import { DUPLICATE_THRESHOLD } from "./dedup.ts";
 import {
-  belowThresholds,
   type EvalReport,
-  evaluate,
   parseCases,
+  runEval,
   type Thresholds,
 } from "./eval.ts";
 import { indexFilm } from "./indexer.ts";
@@ -139,9 +138,25 @@ async function main(): Promise<void> {
   if (command === "eval") {
     const { baseUrl, file, thresholds } = parseEvalArgs(args);
     const cases = parseCases(JSON.parse(await Bun.file(file).text()));
-    const report = await evaluate(baseUrl, cases);
-    console.log(renderEval(report, file, baseUrl));
-    const failures = belowThresholds(report, thresholds);
+    const { gated, crossFilm, failures } = await runEval(
+      baseUrl,
+      cases,
+      thresholds,
+    );
+    console.log(
+      [
+        renderEval(gated, `gated, each query within its film`, file, baseUrl),
+        "",
+        "error" in crossFilm
+          ? `informational, across all films: not scored, ${crossFilm.error}`
+          : renderEval(
+              crossFilm,
+              `informational, across all films`,
+              file,
+              baseUrl,
+            ),
+      ].join("\n"),
+    );
     if (failures.length > 0) {
       console.error(failures.join("\n"));
       process.exitCode = 1;
@@ -206,9 +221,14 @@ function threshold(name: string, raw: string): number {
   return value;
 }
 
-function renderEval(report: EvalReport, file: string, baseUrl: string): string {
+function renderEval(
+  report: EvalReport,
+  label: string,
+  file: string,
+  baseUrl: string,
+): string {
   const lines = [
-    `${report.total} queries from ${file} against ${baseUrl}`,
+    `${label}: ${report.total} queries from ${file} against ${baseUrl}`,
     `  hit@1   ${`${report.hitAt1}/${report.total}`.padStart(7)}  ${share(report.hitAt1, report.total)}`,
     `  hit@5   ${`${report.hitAt5}/${report.total}`.padStart(7)}  ${share(report.hitAt5, report.total)}`,
     `  MRR@10  ${report.mrrAt10.toFixed(3).padStart(7)}`,
