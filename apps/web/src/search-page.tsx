@@ -71,11 +71,7 @@ export function SearchPage({ start }: { start: SearchStart }) {
   const [q, setQ] = useState(start.q);
   const [term, setTerm] = useState("");
   const k = start.k;
-  const [selected, setSelected] = useState<Hit | null>(
-    start.held?.shotId === start.shot ? start.held : null,
-  );
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const wanted = useRef<number | null>(selected === null ? start.shot : null);
   const films = useFilms();
   const settledLog = useRef<{
     reply: SearchReply;
@@ -122,6 +118,8 @@ export function SearchPage({ start }: { start: SearchStart }) {
     staleTime: Number.POSITIVE_INFINITY,
   });
 
+  const selected = selectedOf(start, search.data);
+
   const related = useQuery({
     queryKey: ["similar", selected?.shotId ?? 0],
     queryFn: ({ signal }) =>
@@ -133,14 +131,6 @@ export function SearchPage({ start }: { start: SearchStart }) {
   });
 
   const found: Found | undefined = search.data;
-  useEffect(() => {
-    if (found === undefined || wanted.current === null) return;
-    const hit = found.reply.results.find(
-      (shot) => shot.shotId === wanted.current,
-    );
-    if (hit !== undefined) setSelected(hit);
-    wanted.current = null;
-  }, [found]);
 
   useEffect(() => {
     const error = search.error;
@@ -207,12 +197,10 @@ export function SearchPage({ start }: { start: SearchStart }) {
 
   const updateQuery = (value: string) => {
     setQ(value);
-    setSelected(null);
     writeUrl(value.trim(), k, null);
   };
 
   const select = (shot: Hit | null) => {
-    setSelected(shot);
     writeUrl(q.trim(), k, shot, true);
     if (shot === null || found === undefined) return;
     const at = found.reply.results.findIndex(
@@ -339,6 +327,14 @@ export function SearchPage({ start }: { start: SearchStart }) {
         )}
       </div>
     </div>
+  );
+}
+
+function selectedOf(start: SearchStart, found: Found | undefined): Hit | null {
+  if (start.shot === null) return null;
+  if (start.held?.shotId === start.shot) return start.held;
+  return (
+    found?.reply.results.find((shot) => shot.shotId === start.shot) ?? null
   );
 }
 
