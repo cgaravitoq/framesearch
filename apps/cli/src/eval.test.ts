@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { evaluate, parseCases, runEval } from "./eval.ts";
+import { evaluate, parseCases, publishedCases, runEval } from "./eval.ts";
 
 const realFetch = globalThis.fetch;
 const requested: URL[] = [];
@@ -60,8 +60,8 @@ test("the gated score searches each query within its own film", async () => {
 test("thresholds gate only the per-film score", async () => {
   serve(otherFilmOutranksUnfiltered);
   const run = await runEval("https://site.test", cases, {
-    hitAt1: 2,
-    hitAt5: 2,
+    hitAt1: 1,
+    hitAt5: 1,
     mrrAt10: 1,
   });
   expect(run.gated.hitAt1).toBe(2);
@@ -78,7 +78,7 @@ test("the cross-film score cannot fail the run even at zero", async () => {
           { film: "wwz", shot: 50 },
         ],
   );
-  const run = await runEval("https://site.test", cases, { hitAt5: 2 });
+  const run = await runEval("https://site.test", cases, { hitAt5: 1 });
   expect(run.crossFilm).toMatchObject({ hitAt5: 0 });
   expect(run.failures).toEqual([]);
 });
@@ -98,7 +98,7 @@ test("a cross-film pass that errors cannot fail the run", async () => {
     },
     { preconnect: realFetch.preconnect },
   );
-  const run = await runEval("https://site.test", cases, { hitAt5: 2 });
+  const run = await runEval("https://site.test", cases, { hitAt5: 1 });
   expect(run.gated.hitAt5).toBe(2);
   expect(run.crossFilm).toMatchObject({
     error: expect.stringContaining("502"),
@@ -142,4 +142,14 @@ test("latency leaves out the wait for the rate limit", async () => {
   );
   expect(calls).toBe(2);
   expect(report.latency.p95).toBeLessThan(300);
+});
+
+test("only queries for published films are scored", async () => {
+  globalThis.fetch = Object.assign(
+    async () => Response.json({ films: [{ slug: "wwz", title: "W" }] }),
+    { preconnect: realFetch.preconnect },
+  );
+  const { scored, skipped } = await publishedCases("https://site.test", cases);
+  expect(scored.map((testCase) => testCase.film)).toEqual(["wwz"]);
+  expect(skipped.map((testCase) => testCase.film)).toEqual(["night"]);
 });

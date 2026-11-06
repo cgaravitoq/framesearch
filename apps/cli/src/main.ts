@@ -1,9 +1,9 @@
-import { join } from "node:path";
 import { bucketName, databaseName } from "./cloud.ts";
 import { DUPLICATE_THRESHOLD } from "./dedup.ts";
 import {
   type EvalReport,
   parseCases,
+  publishedCases,
   runEval,
   type Thresholds,
 } from "./eval.ts";
@@ -17,24 +17,15 @@ import {
   unwrap,
 } from "./validate.ts";
 
-const DEFAULT_EVAL_FILE = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "..",
-  "evals",
-  "queries.json",
-);
-
 const USAGE = `usage:
   framesearch index <video> --title "<title>"
   framesearch publish <film>
   framesearch unpublish <film>
-  framesearch eval --base-url <url> [file] [thresholds]
+  framesearch eval --base-url <url> <file> [thresholds]
 
 thresholds:
-  --min-hit-at1 <count>    fail below this many queries answered first
-  --min-hit-at5 <count>    fail below this many queries answered in the top five
+  --min-hit-at1 <ratio>    fail below this share of queries answered first
+  --min-hit-at5 <ratio>    fail below this share answered in the top five
   --min-mrr <ratio>        fail below this MRR@10
 
 env:
@@ -137,10 +128,25 @@ async function main(): Promise<void> {
 
   if (command === "eval") {
     const { baseUrl, file, thresholds } = parseEvalArgs(args);
-    const cases = parseCases(JSON.parse(await Bun.file(file).text()));
+    const { scored, skipped } = await publishedCases(
+      baseUrl,
+      parseCases(JSON.parse(await Bun.file(file).text())),
+    );
+    if (skipped.length > 0) {
+      const films = [...new Set(skipped.map((testCase) => testCase.film))];
+      console.log(
+        `skipped ${skipped.length} queries for films not published at ${baseUrl}: ${films.join(", ")}`,
+      );
+    }
+    if (scored.length === 0) {
+      console.log(
+        `no query in ${file} is for a published film; nothing to gate`,
+      );
+      return;
+    }
     const { gated, crossFilm, failures } = await runEval(
       baseUrl,
-      cases,
+      scored,
       thresholds,
     );
     console.log(
@@ -206,9 +212,10 @@ function parseEvalArgs(args: readonly string[]): {
     file = arg;
   }
   if (baseUrl === undefined) throw new Error("missing --base-url");
+  if (file === undefined) throw new Error("missing <file>");
   return {
     baseUrl: unwrap(parseBaseUrl(baseUrl)),
-    file: file ?? DEFAULT_EVAL_FILE,
+    file,
     thresholds,
   };
 }
