@@ -29,7 +29,7 @@ const DEBOUNCE_MS = 320;
 const MIN_QUERY_LENGTH = 3;
 const LOG_SETTLE_MS = 1200;
 const SIMILAR_K = 8;
-const SIZES = [12, 24, 48];
+export const SIZES = [12, 24, 48];
 const SLOTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const STARTERS = [
@@ -55,7 +55,9 @@ type Related =
 
 export interface SearchStart {
   q: string;
+  k: number;
   shot: number | null;
+  held: Hit | null;
 }
 
 let toastId = 1;
@@ -68,10 +70,12 @@ export function SearchPage({ start }: { start: SearchStart }) {
   const navigate = useNavigate();
   const [q, setQ] = useState(start.q);
   const [term, setTerm] = useState("");
-  const [k, setK] = useState(12);
-  const [selected, setSelected] = useState<Hit | null>(null);
+  const k = start.k;
+  const [selected, setSelected] = useState<Hit | null>(
+    start.held?.shotId === start.shot ? start.held : null,
+  );
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const wanted = useRef<number | null>(start.shot);
+  const wanted = useRef<number | null>(selected === null ? start.shot : null);
   const films = useFilms();
   const settledLog = useRef<{
     reply: SearchReply;
@@ -179,12 +183,22 @@ export function SearchPage({ start }: { start: SearchStart }) {
     return () => window.clearTimeout(timer);
   }, [found, search.isFetching, settleSearchLog]);
 
-  const writeUrl = (query: string, shot: number | null, push = false) => {
+  const writeUrl = (
+    query: string,
+    size: number,
+    shot: Hit | null,
+    push = false,
+  ) => {
     void navigate({
       to: "/search",
       search: {
         ...(query === "" ? {} : { q: query }),
-        ...(shot === null ? {} : { shot }),
+        ...(size === SIZES[0] ? {} : { k: size }),
+        ...(shot === null ? {} : { shot: shot.shotId }),
+      },
+      state: (previous) => {
+        const next = { ...previous, shot };
+        return next;
       },
       replace: !push,
       resetScroll: push,
@@ -194,12 +208,12 @@ export function SearchPage({ start }: { start: SearchStart }) {
   const updateQuery = (value: string) => {
     setQ(value);
     setSelected(null);
-    writeUrl(value.trim(), null);
+    writeUrl(value.trim(), k, null);
   };
 
   const select = (shot: Hit | null) => {
     setSelected(shot);
-    writeUrl(q.trim(), shot?.shotId ?? null, true);
+    writeUrl(q.trim(), k, shot, true);
     if (shot === null || found === undefined) return;
     const at = found.reply.results.findIndex(
       (entry) => entry.shotId === shot.shotId,
@@ -270,7 +284,7 @@ export function SearchPage({ start }: { start: SearchStart }) {
                   onExample={updateQuery}
                   onRetry={retry}
                   k={k}
-                  onK={setK}
+                  onK={(size) => writeUrl(q.trim(), size, selected)}
                 />
               </div>
               <AnimatePresence mode="wait">

@@ -19,11 +19,11 @@ const FULL_BLEED = new Set(["/"]);
 async function render(
   path: string,
   client = new QueryClient(),
+  held: Hit | null = null,
 ): Promise<string> {
-  const page = createRouter({
-    routeTree: router.routeTree,
-    history: createMemoryHistory({ initialEntries: [path] }),
-  });
+  const history = createMemoryHistory({ initialEntries: [path] });
+  if (held !== null) history.replace(path, { shot: held });
+  const page = createRouter({ routeTree: router.routeTree, history });
   await page.load();
   return renderToString(
     <QueryClientProvider client={client}>
@@ -101,5 +101,26 @@ describe("a search opened from a link", () => {
     );
     expect(html).toContain("Searching for");
     expect(html).not.toContain(shot(1).frameUrl);
+  });
+});
+
+describe("a refreshed search", () => {
+  test("keeps the result count and the shot picked from the similar shots", async () => {
+    const html = await render(
+      `/search?q=${encodeURIComponent(FARMHOUSE)}&k=24&shot=7`,
+      answered(FARMHOUSE, 24, [shot(1)]),
+      shot(7),
+    );
+    expect(html).toContain('checked="" value="24"');
+    expect(html).toContain('aria-label="Shot at 0:07:00"');
+  });
+
+  test("drops a held shot that is not the one in the address", async () => {
+    const html = await render(
+      `/search?q=${encodeURIComponent(FARMHOUSE)}&shot=8`,
+      new QueryClient(),
+      shot(7),
+    );
+    expect(html).not.toContain("Shot at");
   });
 });

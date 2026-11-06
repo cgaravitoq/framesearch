@@ -1,23 +1,28 @@
+import type { Hit } from "@framesearch/schema";
 import {
   createRootRoute,
   createRoute,
   createRouter,
+  useLocation,
 } from "@tanstack/react-router";
 import { AboutPage } from "./about-page";
 import { LandingPage } from "./landing-page";
 import { NotFoundPage } from "./not-found-page";
-import { SearchPage } from "./search-page";
+import { SearchPage, SIZES } from "./search-page";
 
 interface SearchParams {
   q?: string;
+  k?: number;
   shot?: number;
 }
 
 function readSearch(raw: Record<string, unknown>): SearchParams {
   const q = typeof raw.q === "string" ? raw.q : String(raw.q ?? "");
+  const k = Number(raw.k);
   const shot = Number(raw.shot);
   return {
     ...(q === "" ? {} : { q }),
+    ...(SIZES.includes(k) ? { k } : {}),
     ...(Number.isInteger(shot) && shot > 0 ? { shot } : {}),
   };
 }
@@ -41,8 +46,25 @@ const aboutRoute = createRoute({
 });
 
 function SearchRoute() {
-  const { q, shot } = searchRoute.useSearch();
-  return <SearchPage start={{ q: q ?? "", shot: shot ?? null }} />;
+  const { q, k, shot } = searchRoute.useSearch();
+  const state = useLocation({ select: (location) => location.state });
+  const held = "shot" in state && isHit(state.shot) ? state.shot : null;
+  return (
+    <SearchPage start={{ q: q ?? "", k: k ?? 12, shot: shot ?? null, held }} />
+  );
+}
+
+function isHit(value: unknown): value is Hit {
+  if (typeof value !== "object" || value === null) return false;
+  const shot: Partial<Record<keyof Hit, unknown>> = value;
+  return (
+    typeof shot.shotId === "number" &&
+    typeof shot.film === "string" &&
+    typeof shot.title === "string" &&
+    typeof shot.time === "number" &&
+    typeof shot.frameUrl === "string" &&
+    Array.isArray(shot.tags)
+  );
 }
 
 export const router = createRouter({
