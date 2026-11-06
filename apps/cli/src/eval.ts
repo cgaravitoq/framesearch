@@ -6,6 +6,7 @@ interface Expected {
 
 interface EvalCase {
   query: string;
+  film: string;
   expected: Expected[];
 }
 
@@ -56,24 +57,50 @@ export function parseCases(raw: unknown): EvalCase[] {
     if (!Array.isArray(entry.expected) || entry.expected.length === 0) {
       throw new Error(`${where}.expected must be a non-empty array`);
     }
-    return {
-      query: entry.query,
-      expected: entry.expected.map((range: unknown, at) =>
-        parseExpected(range, `${where}.expected[${at}]`),
-      ),
-    };
+    const expected = entry.expected.map((range: unknown, at) =>
+      parseExpected(range, `${where}.expected[${at}]`),
+    );
+    const films = [...new Set(expected.map((range) => range.film))];
+    const [film] = films;
+    if (film === undefined || films.length > 1) {
+      throw new Error(
+        `${where} expects ranges in several films (${films.join(", ")}); keep each query to one film`,
+      );
+    }
+    return { query: entry.query, film, expected };
   });
+}
+
+export interface EvalRun {
+  gated: EvalReport;
+  crossFilm: EvalReport;
+  failures: string[];
+}
+
+export async function runEval(
+  baseUrl: string,
+  cases: readonly EvalCase[],
+  thresholds: Thresholds,
+): Promise<EvalRun> {
+  const gated = await evaluate(baseUrl, cases, "per-film");
+  const crossFilm = await evaluate(baseUrl, cases, "all-films");
+  return { gated, crossFilm, failures: belowThresholds(gated, thresholds) };
 }
 
 export async function evaluate(
   baseUrl: string,
   cases: readonly EvalCase[],
+  scope: "per-film" | "all-films",
 ): Promise<EvalReport> {
   const samples: number[] = [];
   const ranks: (number | undefined)[] = [];
   for (const testCase of cases) {
     const started = performance.now();
-    const hits = await search(baseUrl, testCase.query);
+    const hits = await search(
+      baseUrl,
+      testCase.query,
+      scope === "per-film" ? testCase.film : undefined,
+    );
     samples.push(performance.now() - started);
     ranks.push(relevanceRank(hits, testCase.expected));
   }
@@ -147,10 +174,15 @@ function matches(hit: SiteHit, expected: readonly Expected[]): boolean {
   );
 }
 
-async function search(baseUrl: string, query: string): Promise<SiteHit[]> {
+async function search(
+  baseUrl: string,
+  query: string,
+  film: string | undefined,
+): Promise<SiteHit[]> {
   const url = new URL(`${baseUrl}/api/search`);
   url.searchParams.set("q", query);
   url.searchParams.set("k", String(EVAL_K));
+  if (film !== undefined) url.searchParams.set("film", film);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
