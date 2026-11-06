@@ -13,8 +13,10 @@ import {
   getFlags,
   logClick,
   logSearch,
+  retryWhileWaking,
   searchShots,
   similarShots,
+  WAKE_RETRY_MS,
 } from "./lib/api";
 import { EASE, useReducedMotion } from "./lib/motion";
 import { timecode } from "./lib/time";
@@ -108,6 +110,8 @@ export function SearchPage({ start }: { start: SearchStart }) {
   const search = useQuery({
     queryKey: ["search", term, k],
     queryFn: ({ signal }) => searchShots(term, k, signal),
+    retry: retryWhileWaking,
+    retryDelay: WAKE_RETRY_MS,
     enabled: term !== "",
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -121,6 +125,8 @@ export function SearchPage({ start }: { start: SearchStart }) {
         ? Promise.resolve([])
         : similarShots(selected, SIMILAR_K, signal),
     enabled: selected !== null,
+    retry: retryWhileWaking,
+    retryDelay: WAKE_RETRY_MS,
     staleTime: Number.POSITIVE_INFINITY,
   });
 

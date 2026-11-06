@@ -5,6 +5,8 @@ import { useReducedMotion } from "./lib/motion";
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
 const LENS = { x: 302, y: 45, r: 22 };
+const FRAME_MS = 1000 / 24;
+const NARROW = 720;
 const BOUNDS = { x0: -14, y0: -196, x1: 306, y1: 142 };
 const REELS = [
   { x: 40, y: -110, R: 80, pack: 0.64, speed: 0.42, depth: 1 },
@@ -133,6 +135,8 @@ export function ProjectorHero({
     let w = 0;
     let h = 0;
     let dpr = 1;
+    let keep: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    let last = -Infinity;
     const t0 = performance.now();
 
     const resize = () => {
@@ -142,23 +146,22 @@ export function ProjectorHero({
       h = r.height;
       el.width = Math.round(w * dpr);
       el.height = Math.round(h * dpr);
+      const k0 = keepOut.current?.getBoundingClientRect();
+      keep = k0
+        ? {
+            x0: k0.left - r.left,
+            y0: k0.top - r.top,
+            x1: k0.right - r.left,
+            y1: k0.bottom - r.top,
+          }
+        : { x0: w * 0.3, y0: h * 0.2, x1: w * 0.7, y1: h * 0.55 };
     };
 
     const frame = (now: number) => {
-      const t = reduced ? 3.2 : (now - t0) / 1000;
+      const t = still() ? 3.2 : (now - t0) / 1000;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const box = el.getBoundingClientRect();
-      const k0 = keepOut.current?.getBoundingClientRect();
-      const keep: Box = k0
-        ? {
-            x0: k0.left - box.left,
-            y0: k0.top - box.top,
-            x1: k0.right - box.left,
-            y1: k0.bottom - box.top,
-          }
-        : { x0: w * 0.3, y0: h * 0.2, x1: w * 0.7, y1: h * 0.55 };
-      const narrow = w < 720;
+      const narrow = w < NARROW;
       const s = narrow ? 0.7 : Math.max(0.7, w / 1600);
       const pad = 64 * s;
       const fade = (x: number, y: number) => {
@@ -270,22 +273,27 @@ export function ProjectorHero({
       ctx.globalAlpha = 1;
     };
 
+    const still = () => reduced || w < NARROW;
     const loop = (now: number) => {
-      if (visible) frame(now);
+      if (visible && !still() && now - last >= FRAME_MS) {
+        last = now;
+        frame(now);
+      }
       raf = requestAnimationFrame(loop);
     };
     resize();
     const ro = new ResizeObserver(() => {
       resize();
-      if (reduced) frame(performance.now());
+      if (still()) frame(performance.now());
     });
     ro.observe(el);
+    if (keepOut.current) ro.observe(keepOut.current);
     const io = new IntersectionObserver(([e]) => {
       if (e) visible = e.isIntersecting;
     });
     io.observe(el);
-    if (reduced) frame(performance.now());
-    else raf = requestAnimationFrame(loop);
+    if (still()) frame(performance.now());
+    raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
