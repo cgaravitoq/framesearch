@@ -17,6 +17,7 @@ export const UPLOAD_CONCURRENCY = 8;
 const BULK_CHUNK = 200;
 const RATE_ATTEMPTS = 8;
 const RATE_WAIT_MS = 60_000;
+const RETRYABLE_STATUS = /\b(429|500|502|503|504): /;
 
 interface StoredObject {
   key: string;
@@ -79,7 +80,8 @@ async function bulkPutPaced(
       await bulkPut(objects, contentType);
       return;
     } catch (error) {
-      const limited = error instanceof Error && error.message.includes("429");
+      const limited =
+        error instanceof Error && RETRYABLE_STATUS.test(error.message);
       if (!limited || attempt >= RATE_ATTEMPTS) throw error;
       await Bun.sleep(RATE_WAIT_MS);
     }
