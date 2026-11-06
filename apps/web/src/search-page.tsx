@@ -7,7 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Copy, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
 import "./bencho/toast-stack/ToastStack.css";
@@ -30,7 +30,7 @@ import { SearchPill } from "./search-pill";
 const DEBOUNCE_MS = 320;
 const MIN_QUERY_LENGTH = 3;
 const LOG_SETTLE_MS = 1200;
-const SIMILAR_K = 8;
+const SIMILAR_K = 4;
 export const SIZES = [12, 24, 48];
 const SLOTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -291,17 +291,6 @@ export function SearchPage({ start }: { start: SearchStart }) {
                     related={relatedOf(related)}
                     onSelect={select}
                     onClose={() => select(null)}
-                    onCopy={() => {
-                      const code = timecode(selected.time);
-                      navigator.clipboard
-                        ?.writeText(`${selected.title} ${code}`)
-                        .catch(() => undefined);
-                      toast({
-                        kind: "success",
-                        title: `Timecode ${code} copied`,
-                        body: selected.title,
-                      });
-                    }}
                   />
                 )}
               </AnimatePresence>
@@ -632,13 +621,11 @@ function Detail({
   related,
   onSelect,
   onClose,
-  onCopy,
 }: {
   shot: Hit;
   related: Related;
   onSelect: (shot: Hit) => void;
   onClose: () => void;
-  onCopy: () => void;
 }) {
   const reduced = useReducedMotion();
 
@@ -653,7 +640,7 @@ function Detail({
   return (
     <motion.aside
       aria-label={`Shot at ${timecode(shot.time)}`}
-      className="flex flex-col gap-8 max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:overflow-y-auto max-lg:bg-paper max-lg:p-4 lg:sticky lg:top-28 lg:max-h-[calc(100svh-8rem)] lg:self-start lg:overflow-y-auto"
+      className="flex flex-col gap-6 max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:overflow-y-auto max-lg:bg-paper max-lg:p-4 lg:sticky lg:top-28 lg:max-h-[calc(100svh-8rem)] lg:self-start lg:overflow-y-auto lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden"
       initial={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
@@ -666,24 +653,14 @@ function Detail({
             {timecode(shot.time)}
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onCopy}
-            className="button-sm inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-paper"
-          >
-            <Copy className="size-4" aria-hidden="true" />
-            <span className="max-sm:sr-only">Copy timecode</span>
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close shot"
-            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close shot"
+          className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
       </div>
 
       <img
@@ -691,7 +668,7 @@ function Detail({
         srcSet={srcSetOf(shot)}
         sizes="(max-width: 1023px) 100vw, 440px"
         alt={captionOf(shot)}
-        className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover max-lg:max-h-[55svh]"
+        className="block aspect-video w-full rounded-[var(--radius-sm)] object-cover max-lg:max-h-[55svh]"
       />
 
       <div>
@@ -715,7 +692,7 @@ function Detail({
             className="mt-4 grid grid-cols-4 gap-3 max-sm:grid-cols-2"
             aria-label="Loading similar shots"
           >
-            {SLOTS.map((slot) => (
+            {SLOTS.slice(0, SIMILAR_K).map((slot) => (
               <li
                 key={slot}
                 className="shimmer aspect-[4/3] rounded-[var(--radius-sm)]"
