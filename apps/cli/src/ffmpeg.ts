@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { FRAME_WIDTH, THUMB_WIDTH } from "@framesearch/schema";
 
 const SCENE_THRESHOLD = 0.3;
 const FRAME_CONCURRENCY = 6;
@@ -176,6 +177,40 @@ export async function extractFrames(
     Array.from({ length: Math.min(FRAME_CONCURRENCY, times.length) }, worker),
   );
   return paths;
+}
+
+export async function frameSizes(
+  source: string,
+  frame: string,
+  thumb: string,
+): Promise<void> {
+  const { code, stderr } = await run([
+    "ffmpeg",
+    "-hide_banner",
+    "-nostdin",
+    "-loglevel",
+    "error",
+    "-y",
+    "-i",
+    source,
+    "-filter_complex",
+    `[0]split[a][b];[a]scale='min(${FRAME_WIDTH},iw)':-2[f];[b]scale='min(${THUMB_WIDTH},iw)':-2[t]`,
+    "-map",
+    "[f]",
+    "-q:v",
+    "4",
+    frame,
+    "-map",
+    "[t]",
+    "-q:v",
+    "5",
+    thumb,
+  ]);
+  if (code !== 0) {
+    throw new Error(
+      `ffmpeg could not size ${source} (${code}): ${tail(stderr)}`,
+    );
+  }
 }
 
 function tail(text: string): string {

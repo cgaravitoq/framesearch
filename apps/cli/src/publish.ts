@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs";
-import { decodeVectors, frameKey, vectorsKey } from "@framesearch/schema";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  decodeVectors,
+  frameKey,
+  thumbKey,
+  vectorsKey,
+} from "@framesearch/schema";
 import {
   type Cloud,
   mapBounded,
@@ -7,6 +14,7 @@ import {
   UPLOAD_CONCURRENCY,
   wranglerCloud,
 } from "./cloud.ts";
+import { frameSizes } from "./ffmpeg.ts";
 import { dataDir, frameFile, vectorsFile } from "./paths.ts";
 import { publishedVersionSql, publishSql } from "./sql.ts";
 import { openStore, readFilm, readShots } from "./store.ts";
@@ -16,7 +24,10 @@ import { assertVectorsMatch } from "./vectors.ts";
 interface PublishOptions {
   dataDir?: string | undefined;
   cloud?: Cloud | undefined;
+  resize?: typeof frameSizes | undefined;
 }
+
+const RESIZE_CONCURRENCY = 4;
 
 interface PublishReport {
   film: string;
@@ -36,7 +47,9 @@ export async function publishFilm(
   const slug = unwrap(parseFilmArg(rawSlug));
   const dir = options.dataDir ?? dataDir();
   const cloud = options.cloud ?? wranglerCloud;
+  const resize = options.resize ?? frameSizes;
   const db = openStore(dir);
+  let sized: string | undefined;
   try {
     const film = readFilm(db, slug);
     if (film === null) {
@@ -55,17 +68,27 @@ export async function publishFilm(
     const vectors = decodeVectors(await Bun.file(localVectors).bytes());
     assertVectorsMatch(shots, vectors);
 
-    const frames = shots.map((shot) => ({
-      key: frameKey(slug, shot.idx),
-      file: frameFile(dir, slug, shot.idx),
-    }));
-    const missing = frames.filter((frame) => !existsSync(frame.file));
+    const sources = shots.map((shot) => frameFile(dir, slug, shot.idx));
+    const missing = sources.filter((source) => !existsSync(source));
     const firstMissing = missing[0];
     if (firstMissing !== undefined) {
       throw new Error(
-        `${missing.length} frames are missing from the local store, first ${firstMissing.file}`,
+        `${missing.length} frames are missing from the local store, first ${firstMissing}`,
       );
     }
+    const out = await mkdtemp(join(dir, "tmp-sizes-"));
+    sized = out;
+    const frames = shots.flatMap((shot) => [
+      { key: frameKey(slug, shot.idx), file: join(out, `${shot.idx}.jpg`) },
+      { key: thumbKey(slug, shot.idx), file: join(out, `${shot.idx}-t.jpg`) },
+    ]);
+    await mapBounded(shots, RESIZE_CONCURRENCY, (shot) =>
+      resize(
+        frameFile(dir, slug, shot.idx),
+        join(out, `${shot.idx}.jpg`),
+        join(out, `${shot.idx}-t.jpg`),
+      ),
+    );
 
     const current = new Set(shots.map((shot) => shot.idx));
     const stale = (await cloud.publishedFrames(slug)).filter(
@@ -95,8 +118,10 @@ export async function publishFilm(
       cloud.deleteObject(retiredKey),
     );
     try {
-      await mapBounded(stale, UPLOAD_CONCURRENCY, (idx) =>
-        cloud.deleteObject(frameKey(slug, idx)),
+      await mapBounded(
+        stale.flatMap((idx) => [frameKey(slug, idx), thumbKey(slug, idx)]),
+        UPLOAD_CONCURRENCY,
+        (staleKey) => cloud.deleteObject(staleKey),
       );
     } catch (error) {
       throw new Error(
@@ -116,6 +141,7 @@ export async function publishFilm(
     };
   } finally {
     db.close();
+    if (sized !== undefined) await rm(sized, { recursive: true, force: true });
   }
 }
 

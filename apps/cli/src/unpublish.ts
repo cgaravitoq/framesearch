@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { frameKey, vectorsKey } from "@framesearch/schema";
+import { frameKey, thumbKey, vectorsKey } from "@framesearch/schema";
 import {
   type Cloud,
   mapBounded,
@@ -49,8 +49,10 @@ export async function unpublishFilm(
   ];
   await cloud.executeSql(unpublishSql(slug));
   await mapBounded(keys, UPLOAD_CONCURRENCY, (key) => cloud.deleteObject(key));
-  await mapBounded(frames, UPLOAD_CONCURRENCY, (idx) =>
-    cloud.deleteObject(frameKey(slug, idx)),
+  await mapBounded(
+    frames.flatMap((idx) => [frameKey(slug, idx), thumbKey(slug, idx)]),
+    UPLOAD_CONCURRENCY,
+    (key) => cloud.deleteObject(key),
   );
   return {
     film: slug,
