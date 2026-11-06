@@ -5,6 +5,7 @@ const SCENE_THRESHOLD = 0.3;
 const FRAME_CONCURRENCY = 6;
 const PTS_PATTERN = /pts_time:([0-9]+(?:\.[0-9]+)?)/g;
 const TIME_PRECISION = 1000;
+const MAX_SAMPLE_GAP = 10;
 
 export interface Shot {
   start: number;
@@ -109,11 +110,15 @@ export function shotBounds(cuts: readonly number[], duration: number): Shot[] {
   return shots;
 }
 
-export function midTimes(shots: readonly Shot[]): number[] {
+export function sampleTimes(shots: readonly Shot[]): number[] {
   const times = new Set<number>();
   for (const shot of shots) {
-    const mid = (shot.start + shot.end) / 2;
-    times.add(Math.round(mid * TIME_PRECISION) / TIME_PRECISION);
+    const length = shot.end - shot.start;
+    const count = Math.max(1, Math.ceil(length / MAX_SAMPLE_GAP));
+    for (let at = 0; at < count; at += 1) {
+      const time = shot.start + (length * (at + 0.5)) / count;
+      times.add(Math.round(time * TIME_PRECISION) / TIME_PRECISION);
+    }
   }
   return [...times].sort((left, right) => left - right);
 }
