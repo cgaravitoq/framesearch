@@ -1,9 +1,37 @@
 # framesearch
 
-Find the shot you remember by describing it: type "a helicopter over a field" and get back the frames, each with its film and timecode.
-It ships with one film, Night of the Living Dead, and anyone can search it read-only.
+Find the shot you remember by describing it.
+Type "a man boarding up a window" and get back the frames that match, each with its film and timecode.
+
+<p align="center">
+  <img src="docs/media/demo.webp" alt="Typing a description on the search page, the matching shots arriving, opening one, dragging the compare slider against its closest match and opening a similar shot" width="960">
+</p>
+
+Try it at [framesearch.carlos-garavito.workers.dev](https://framesearch.carlos-garavito.workers.dev).
+The public site holds one film, Night of the Living Dead, and anyone can search it read-only.
+
+## What it does
+
+- Searches as you type, in English or Spanish, and works best when you describe what is visible rather than the plot.
+- Opens a shot with its caption, its tags and where it sits in the film.
+- Puts the shot next to its closest match under a slider you drag to compare them.
+- Lists the shots that look like the one you opened, so one good hit leads to the rest of the scene.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/media/landing.png">
+    <img src="docs/media/hero.webp" alt="The Frame Search landing page with its halftone film projector" width="960">
+  </picture>
+</p>
 
 ## How it works
+
+A film is cut into shots on your machine, and each shot gets an embedding of its frame and of a caption written for it.
+A search embeds your words with the same model, ranks every frame and caption by meaning, adds keyword hits, and fuses both lists into one.
+The vectors are int8 and sit in the Worker's memory, so ranking needs no vector database.
+The embedder is EmbeddingGemma 2 on llama.cpp in a Cloudflare Container, and keyword search is D1 FTS5.
+
+## Architecture
 
 - `apps/cli` (Bun, local): ffmpeg cuts a video into shots, embeddings come from a local llama.cpp, captions from OpenRouter, and one command publishes frames, rows and int8 vectors to R2 and D1.
   A publish stamps its vectors as `vectors/<slug>-<uuid>.bin` and names that object in the D1 published row, so the next publish writes a new file instead of overwriting the one live searches read.
@@ -12,8 +40,16 @@ It ships with one film, Night of the Living Dead, and anyone can search it read-
 - `apps/embedder`: llama.cpp serving EmbeddingGemma 2 in a Cloudflare container reached through a Durable Object, with a primary instance plus two overflow instances, each sleeping after 10 idle minutes (`sleepAfter`) since every page load prewarms it, so the deployed Worker carries no embeddings key.
 - `apps/web`: the React SPA the same Worker serves: a landing page at `/` and the search at `/search`, which searches as you type, opens a shot with its similar shots and its place in the film, and takes English and Spanish queries.
   It self-hosts its fonts (Space Grotesk, IBM Plex Sans and Geist Mono, under the OFL) and uses three MIT blocks from bencho, kept with their licence in `src/bencho`.
-  Its `/about` page and the footer on every page say the frames are copyrighted, shown at reduced resolution as a fair-use defence with no licence granted, and that rights holders ask for removal through GitHub issues.
 - `packages/schema` and `packages/core`: the contracts and the pure ranking code both sides share.
+
+## Numbers
+
+Measured on a local run, not on the public site, where the first search after the embedder has slept waits a few seconds for the model to load.
+
+- `/api/search` takes 28 ms end to end.
+- Embedding the query takes 11.1 ms at p50, and ranking takes 5.4 ms at p50.
+- Ranking 300,000 shots takes 178 ms.
+- Across 3 films, 58 of 59 eval queries put the right shot in the top five, with an MRR of 0.958.
 
 ## Self-hosting
 
@@ -32,4 +68,9 @@ Publish a film before that first merge, or the eval has nothing to find.
 Features ship behind booleans in the `vars` of `apps/api/wrangler.jsonc`, read through `readFlags` and exposed at `/api/flags`; a flag that is missing or not a boolean is off.
 `SEARCH_LOG` keeps the anonymous search log on.
 
-MIT licensed.
+## Legal
+
+The frames belong to their rights holders and are shown at reduced resolution as a fair-use defence, with no licence granted.
+The [about page](https://framesearch.carlos-garavito.workers.dev/about) has the full note, and rights holders ask for removal through GitHub issues.
+
+The code is MIT licensed.
