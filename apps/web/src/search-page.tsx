@@ -4,8 +4,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Copy, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Compare } from "./bencho/image-compare/Compare";
-import "./bencho/image-compare/Compare.css";
 import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
 import "./bencho/toast-stack/ToastStack.css";
 import { LegalFooter, Logo, TwoTone } from "./chrome";
@@ -18,7 +16,7 @@ import {
   searchShots,
   similarShots,
 } from "./lib/api";
-import { EASE, useReducedMotion, useWidth } from "./lib/motion";
+import { EASE, useReducedMotion } from "./lib/motion";
 import { timecode } from "./lib/time";
 import { SearchPill } from "./search-pill";
 
@@ -626,9 +624,6 @@ function Detail({
   onCopy: () => void;
 }) {
   const reduced = useReducedMotion();
-  const [boxRef, boxW] = useWidth<HTMLDivElement>();
-  const near = related.status === "done" ? related.shots : [];
-  const closest = near[0];
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -674,26 +669,11 @@ function Detail({
         </div>
       </div>
 
-      <div ref={boxRef} className="w-full">
-        {closest !== undefined && boxW > 0 ? (
-          <Compare
-            key={`${shot.shotId}-${closest.shotId}`}
-            before={shot.frameUrl}
-            after={closest.frameUrl}
-            names={["This shot", `Closest, ${timecode(closest.time)}`]}
-            width={boxW}
-            height={Math.round(boxW * 0.75)}
-            corner={8}
-            label="Drag to compare this shot with its closest match"
-          />
-        ) : (
-          <img
-            src={shot.frameUrl}
-            alt={captionOf(shot)}
-            className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
-          />
-        )}
-      </div>
+      <img
+        src={shot.frameUrl}
+        alt={captionOf(shot)}
+        className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
+      />
 
       <div>
         <p className="body-3">{shot.caption}</p>
