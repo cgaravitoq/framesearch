@@ -67,7 +67,7 @@ function captionOf(shot: Hit): string {
 export function SearchPage({ start }: { start: SearchStart }) {
   const navigate = useNavigate();
   const [q, setQ] = useState(start.q);
-  const [term, setTerm] = useState(searchable(start.q));
+  const [term, setTerm] = useState("");
   const [k, setK] = useState(12);
   const [selected, setSelected] = useState<Hit | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
