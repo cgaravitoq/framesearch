@@ -8,13 +8,12 @@ Type "a man boarding up a window" and get back the frames that match, each with 
 </p>
 
 Try it at [framesearch.carlos-garavito.workers.dev](https://framesearch.carlos-garavito.workers.dev).
-The public site holds one film, Night of the Living Dead, and anyone can search it read-only.
+The public site holds a few films, Night of the Living Dead among them, and anyone can search them read-only.
 
 ## What it does
 
 - Searches as you type, in English or Spanish, and works best when you describe what is visible rather than the plot.
-- Opens a shot with its caption, its tags and where it sits in the film.
-- Puts the shot next to its closest match under a slider you drag to compare them.
+- Opens a shot with its caption, its tags and its timecode.
 - Lists the shots that look like the one you opened, so one good hit leads to the rest of the scene.
 
 <p align="center">
