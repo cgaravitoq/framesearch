@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { frameKey, thumbKey, vectorsKey } from "@framesearch/schema";
+import { vectorsKey } from "@framesearch/schema";
 import {
   type Cloud,
   mapBounded,
@@ -8,6 +8,7 @@ import {
   wranglerCloud,
 } from "./cloud.ts";
 import { dataDir, dbFile } from "./paths.ts";
+import { frameKeys } from "./publish.ts";
 import { unpublishSql } from "./sql.ts";
 import { openStore, readShots } from "./store.ts";
 import { parseFilmArg, unwrap } from "./validate.ts";
@@ -50,7 +51,7 @@ export async function unpublishFilm(
   await cloud.executeSql(unpublishSql(slug));
   await mapBounded(keys, UPLOAD_CONCURRENCY, (key) => cloud.deleteObject(key));
   await mapBounded(
-    frames.flatMap((idx) => [frameKey(slug, idx), thumbKey(slug, idx)]),
+    frames.flatMap((idx) => frameKeys(slug, idx)),
     UPLOAD_CONCURRENCY,
     (key) => cloud.deleteObject(key),
   );

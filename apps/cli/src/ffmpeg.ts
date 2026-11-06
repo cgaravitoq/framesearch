@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { FRAME_WIDTH, THUMB_WIDTH } from "@framesearch/schema";
+import { DISPLAY_WIDTH, THUMB_WIDTH } from "@framesearch/schema";
 
 const SCENE_THRESHOLD = 0.3;
 const FRAME_CONCURRENCY = 6;
@@ -181,7 +181,7 @@ export async function extractFrames(
 
 export async function frameSizes(
   source: string,
-  frame: string,
+  display: string,
   thumb: string,
 ): Promise<void> {
   const { code, stderr } = await run([
@@ -194,12 +194,12 @@ export async function frameSizes(
     "-i",
     source,
     "-filter_complex",
-    `[0]split[a][b];[a]scale='min(${FRAME_WIDTH},iw)':-2[f];[b]scale='min(${THUMB_WIDTH},iw)':-2[t]`,
+    `[0]split[a][b];[a]scale='min(${DISPLAY_WIDTH},iw)':-2[f];[b]scale='min(${THUMB_WIDTH},iw)':-2[t]`,
     "-map",
     "[f]",
     "-q:v",
     "4",
-    frame,
+    display,
     "-map",
     "[t]",
     "-q:v",

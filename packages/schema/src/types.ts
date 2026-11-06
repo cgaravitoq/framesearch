@@ -23,6 +23,7 @@ export interface Hit {
   shotEnd: number;
   frameUrl: string;
   thumbUrl: string;
+  displayUrl: string;
   caption: string | null;
   tags: string[];
   score: number;

@@ -2,9 +2,12 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  DISPLAY_WIDTH,
   decodeVectors,
   frameKey,
-  thumbKey,
+  SIZED_WIDTHS,
+  sizedFrameKey,
+  THUMB_WIDTH,
   vectorsKey,
 } from "@framesearch/schema";
 import {
@@ -79,14 +82,21 @@ export async function publishFilm(
     const out = await mkdtemp(join(dir, "tmp-sizes-"));
     sized = out;
     const frames = shots.flatMap((shot) => [
-      { key: frameKey(slug, shot.idx), file: join(out, `${shot.idx}.jpg`) },
-      { key: thumbKey(slug, shot.idx), file: join(out, `${shot.idx}-t.jpg`) },
+      { key: frameKey(slug, shot.idx), file: frameFile(dir, slug, shot.idx) },
+      {
+        key: sizedFrameKey(slug, shot.idx, DISPLAY_WIDTH),
+        file: join(out, `${shot.idx}-${DISPLAY_WIDTH}.jpg`),
+      },
+      {
+        key: sizedFrameKey(slug, shot.idx, THUMB_WIDTH),
+        file: join(out, `${shot.idx}-${THUMB_WIDTH}.jpg`),
+      },
     ]);
     await mapBounded(shots, RESIZE_CONCURRENCY, (shot) =>
       resize(
         frameFile(dir, slug, shot.idx),
-        join(out, `${shot.idx}.jpg`),
-        join(out, `${shot.idx}-t.jpg`),
+        join(out, `${shot.idx}-${DISPLAY_WIDTH}.jpg`),
+        join(out, `${shot.idx}-${THUMB_WIDTH}.jpg`),
       ),
     );
 
@@ -119,7 +129,7 @@ export async function publishFilm(
     );
     try {
       await mapBounded(
-        stale.flatMap((idx) => [frameKey(slug, idx), thumbKey(slug, idx)]),
+        stale.flatMap((idx) => frameKeys(slug, idx)),
         UPLOAD_CONCURRENCY,
         (staleKey) => cloud.deleteObject(staleKey),
       );
@@ -147,4 +157,11 @@ export async function publishFilm(
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function frameKeys(film: string, idx: number): string[] {
+  return [
+    frameKey(film, idx),
+    ...SIZED_WIDTHS.map((width) => sizedFrameKey(film, idx, width)),
+  ];
 }

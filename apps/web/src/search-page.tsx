@@ -1,5 +1,5 @@
 import {
-  FRAME_WIDTH,
+  DISPLAY_WIDTH,
   type Hit,
   type SearchReply,
   THUMB_WIDTH,
@@ -7,7 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, Maximize2, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
 import "./bencho/toast-stack/ToastStack.css";
@@ -65,7 +65,7 @@ export interface SearchStart {
 let toastId = 1;
 
 function srcSetOf(shot: Hit): string {
-  return `${shot.thumbUrl} ${THUMB_WIDTH}w, ${shot.frameUrl} ${FRAME_WIDTH}w`;
+  return `${shot.thumbUrl} ${THUMB_WIDTH}w, ${shot.displayUrl} ${DISPLAY_WIDTH}w`;
 }
 
 function captionOf(shot: Hit): string {
@@ -437,7 +437,7 @@ function Card({
         className="group block w-full rounded-[var(--radius-sm)] text-left"
       >
         <img
-          src={shot.frameUrl}
+          src={shot.displayUrl}
           srcSet={srcSetOf(shot)}
           sizes="(max-width: 639px) 100vw, (max-width: 1279px) 50vw, 340px"
           alt={captionOf(shot)}
@@ -653,18 +653,29 @@ function Detail({
             {timecode(shot.time)}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close shot"
-          className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </button>
+        <div className="flex gap-2">
+          <a
+            href={shot.frameUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open the full frame"
+            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
+          >
+            <Maximize2 className="size-4" aria-hidden="true" />
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close shot"
+            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <img
-        src={shot.frameUrl}
+        src={shot.displayUrl}
         srcSet={srcSetOf(shot)}
         sizes="(max-width: 1023px) 100vw, 440px"
         alt={captionOf(shot)}

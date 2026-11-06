@@ -123,6 +123,7 @@ function frameKeys(shots: readonly StoredShot[]): string {
   return shots
     .flatMap((shot) => [
       `frames/${SLUG}/${shot.idx}.jpg`,
+      `frames/${SLUG}/${shot.idx}-960.jpg`,
       `frames/${SLUG}/${shot.idx}-480.jpg`,
     ])
     .join(",");
@@ -361,8 +362,10 @@ describe("publish", () => {
       "version",
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/3-480.jpg`,
+      `delete frames/${SLUG}/3-960.jpg`,
       `delete frames/${SLUG}/4.jpg`,
       `delete frames/${SLUG}/4-480.jpg`,
+      `delete frames/${SLUG}/4-960.jpg`,
     ]);
   });
 
@@ -383,8 +386,10 @@ describe("publish", () => {
       "version",
       `delete frames/${SLUG}/3.jpg`,
       `delete frames/${SLUG}/3-480.jpg`,
+      `delete frames/${SLUG}/3-960.jpg`,
       `delete frames/${SLUG}/4.jpg`,
       `delete frames/${SLUG}/4-480.jpg`,
+      `delete frames/${SLUG}/4-960.jpg`,
     ]);
   });
 
@@ -478,10 +483,13 @@ describe("unpublish", () => {
       `delete ${prior}`,
       `delete frames/${SLUG}/0.jpg`,
       `delete frames/${SLUG}/0-480.jpg`,
+      `delete frames/${SLUG}/0-960.jpg`,
       `delete frames/${SLUG}/1.jpg`,
       `delete frames/${SLUG}/1-480.jpg`,
+      `delete frames/${SLUG}/1-960.jpg`,
       `delete frames/${SLUG}/2.jpg`,
       `delete frames/${SLUG}/2-480.jpg`,
+      `delete frames/${SLUG}/2-960.jpg`,
     ]);
     expect(report.vectorsKeys).toEqual([`vectors/${SLUG}.bin`, current, prior]);
     const statements = statementsOf(sql[0] ?? "");

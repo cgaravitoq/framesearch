@@ -1,10 +1,12 @@
 import { fuse, MAX_K, type SignalHits } from "@framesearch/core";
 import {
+  DISPLAY_WIDTH,
   frameKey,
   type Hit,
   type RankedShot,
   type SearchReply,
-  thumbKey,
+  sizedFrameKey,
+  THUMB_WIDTH,
 } from "@framesearch/schema";
 import { type Embeddings, embedQuery } from "./embeddings.ts";
 import type { Env } from "./env.ts";
@@ -221,7 +223,8 @@ function toHit(shot: ShotRow, score: number, version: number): Hit {
     caption: shot.caption,
     film: shot.film,
     frameUrl: `/${frameKey(shot.film, shot.idx)}?v=${version}`,
-    thumbUrl: `/${thumbKey(shot.film, shot.idx)}?v=${version}`,
+    thumbUrl: `/${sizedFrameKey(shot.film, shot.idx, THUMB_WIDTH)}?v=${version}`,
+    displayUrl: `/${sizedFrameKey(shot.film, shot.idx, DISPLAY_WIDTH)}?v=${version}`,
     score,
     shotEnd: shot.shotEnd,
     shotId: shot.id,

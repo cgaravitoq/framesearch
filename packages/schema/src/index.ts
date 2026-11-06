@@ -1,9 +1,11 @@
 export { DDL } from "./ddl.ts";
 export {
-  FRAME_WIDTH,
+  DISPLAY_WIDTH,
   frameKey,
+  SIZED_WIDTHS,
+  type SizedWidth,
+  sizedFrameKey,
   THUMB_WIDTH,
-  thumbKey,
   vectorsKey,
 } from "./keys.ts";
 export type {
