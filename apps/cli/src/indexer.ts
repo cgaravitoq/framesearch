@@ -7,9 +7,9 @@ import { embed } from "./embed.ts";
 import {
   detectCuts,
   extractFrames,
-  midTimes,
   probeDuration,
   type Shot,
+  sampleTimes,
   shotAt,
   shotBounds,
 } from "./ffmpeg.ts";
@@ -58,7 +58,7 @@ export async function indexFilm(options: IndexOptions): Promise<IndexReport> {
   const duration = await probeDuration(video);
   const cuts = await detectCuts(video);
   const shots = shotBounds(cuts, duration);
-  const times = midTimes(shots);
+  const times = sampleTimes(shots);
   if (times.length === 0) throw new Error(`no frames found in ${video}`);
 
   const scratch = await mkdtemp(join(dir, "tmp-"));
