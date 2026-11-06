@@ -35,6 +35,7 @@ export interface Thresholds {
 
 const EVAL_K = 10;
 const HIT_LIMIT = 5;
+const RATE_RETRIES = 3;
 
 interface SiteHit {
   film: string;
@@ -183,7 +184,15 @@ async function search(
   url.searchParams.set("q", query);
   url.searchParams.set("k", String(EVAL_K));
   if (film !== undefined) url.searchParams.set("film", film);
-  const response = await fetch(url);
+  let response = await fetch(url);
+  for (
+    let retry = 0;
+    response.status === 429 && retry < RATE_RETRIES;
+    retry += 1
+  ) {
+    await Bun.sleep(1000 * (Number(response.headers.get("retry-after")) || 60));
+    response = await fetch(url);
+  }
   if (!response.ok) {
     throw new Error(
       `${url} answered ${response.status}: ${(await response.text()).slice(0, 200)}`,
