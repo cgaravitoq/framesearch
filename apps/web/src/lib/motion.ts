@@ -37,18 +37,3 @@ export function useInView<T extends Element>(margin = "0px 0px -15% 0px") {
   }, [seen, margin]);
   return [ref, seen] as const;
 }
-
-export function useWidth<T extends Element>() {
-  const ref = useRef<T | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry !== undefined) setWidth(Math.round(entry.contentRect.width));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, width] as const;
-}

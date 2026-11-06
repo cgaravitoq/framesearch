@@ -1,13 +1,9 @@
-import type { Film, Hit, SearchReply } from "@framesearch/schema";
+import type { Hit, SearchReply } from "@framesearch/schema";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Copy, RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Compare } from "./bencho/image-compare/Compare";
-import "./bencho/image-compare/Compare.css";
-import { Scrub } from "./bencho/time-scrubber/Scrub";
-import "./bencho/time-scrubber/Scrub.css";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
 import "./bencho/toast-stack/ToastStack.css";
 import { LegalFooter, Logo, TwoTone } from "./chrome";
@@ -20,8 +16,7 @@ import {
   searchShots,
   similarShots,
 } from "./lib/api";
-import { useFilms } from "./lib/films";
-import { EASE, useReducedMotion, useWidth } from "./lib/motion";
+import { EASE, useReducedMotion } from "./lib/motion";
 import { timecode } from "./lib/time";
 import { SearchPill } from "./search-pill";
 
@@ -72,7 +67,6 @@ export function SearchPage({ start }: { start: SearchStart }) {
   const [term, setTerm] = useState("");
   const k = start.k;
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const films = useFilms();
   const settledLog = useRef<{
     reply: SearchReply;
     id: Promise<number | null>;
@@ -216,7 +210,6 @@ export function SearchPage({ start }: { start: SearchStart }) {
 
   const results = resultsOf(q, term, search, found);
   const hasQuery = results.status !== "idle";
-  const film = films?.find((entry) => entry.slug === selected?.film);
 
   return (
     <div className="min-h-screen">
@@ -280,9 +273,7 @@ export function SearchPage({ start }: { start: SearchStart }) {
                   <Detail
                     key={selected.shotId}
                     shot={selected}
-                    film={film}
                     related={relatedOf(related)}
-                    results={results.status === "done" ? results.shots : []}
                     onSelect={select}
                     onClose={() => select(null)}
                     onCopy={() => {
@@ -621,32 +612,18 @@ function ResultsView({
 
 function Detail({
   shot,
-  film,
   related,
-  results,
   onSelect,
   onClose,
   onCopy,
 }: {
   shot: Hit;
-  film: Film | undefined;
   related: Related;
-  results: Hit[];
   onSelect: (shot: Hit) => void;
   onClose: () => void;
   onCopy: () => void;
 }) {
   const reduced = useReducedMotion();
-  const [boxRef, boxW] = useWidth<HTMLDivElement>();
-  const near = related.status === "done" ? related.shots : [];
-  const pool = useMemo(() => {
-    const byId = new Map<number, Hit>();
-    for (const entry of [...results, ...near, shot]) {
-      if (entry.film === shot.film) byId.set(entry.shotId, entry);
-    }
-    return [...byId.values()];
-  }, [results, near, shot]);
-  const closest = near[0];
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -692,26 +669,11 @@ function Detail({
         </div>
       </div>
 
-      <div ref={boxRef} className="w-full">
-        {closest !== undefined && boxW > 0 ? (
-          <Compare
-            key={`${shot.shotId}-${closest.shotId}`}
-            before={shot.frameUrl}
-            after={closest.frameUrl}
-            names={["This shot", `Closest, ${timecode(closest.time)}`]}
-            width={boxW}
-            height={Math.round(boxW * 0.75)}
-            corner={8}
-            label="Drag to compare this shot with its closest match"
-          />
-        ) : (
-          <img
-            src={shot.frameUrl}
-            alt={captionOf(shot)}
-            className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
-          />
-        )}
-      </div>
+      <img
+        src={shot.frameUrl}
+        alt={captionOf(shot)}
+        className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
+      />
 
       <div>
         <p className="body-3">{shot.caption}</p>
@@ -726,27 +688,6 @@ function Detail({
           ))}
         </ul>
       </div>
-
-      {film !== undefined && (
-        <div className="flex flex-col items-center gap-3">
-          <p className="caption-1 self-start text-body">
-            Where it sits in the film. Drag to step through the shots you found.
-          </p>
-          <Scrub
-            duration={film.duration}
-            value={shot.time}
-            marks={pool.map((entry) => entry.time)}
-            corner={16}
-            onSettle={(time) => {
-              const hit = pool.find(
-                (entry) => Math.abs(entry.time - time) < 0.01,
-              );
-              if (hit !== undefined && hit.shotId !== shot.shotId)
-                onSelect(hit);
-            }}
-          />
-        </div>
-      )}
 
       <div className="pb-2">
         <h2 className="title-3">Shots that look like this</h2>
