@@ -4,11 +4,11 @@ Find the shot you remember by describing it.
 Type "a man boarding up a window" and get back the frames that match, each with its film and timecode.
 
 <p align="center">
-  <img src="docs/media/demo.webp" alt="Typing a description on the search page, the matching shots arriving, opening one, dragging the compare slider against its closest match and opening a similar shot" width="960">
+  <img src="docs/media/demo.webp" alt="Typing a description on the search page, the matching shots arriving, opening one and then one of the shots that look like it" width="960">
 </p>
 
 Try it at [framesearch.carlos-garavito.workers.dev](https://framesearch.carlos-garavito.workers.dev).
-The public site holds a few films, Night of the Living Dead among them, and anyone can search them read-only.
+The public site holds a handful of films, and anyone can search them read-only.
 
 ## What it does
 
