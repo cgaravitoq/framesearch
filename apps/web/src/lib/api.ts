@@ -22,6 +22,9 @@ export class ApiError extends Error {
   }
 }
 
+const WAKE_RETRIES = 10;
+export const WAKE_RETRY_MS = 2000;
+
 interface Reply<T> {
   body: T;
   serverMs: number | null;
@@ -89,6 +92,15 @@ function errorMessage(body: unknown): string | null {
 export function serverTotal(header: string | null): number | null {
   const match = /(?:^|,)\s*total;dur=([\d.]+)/.exec(header ?? "");
   return match?.[1] === undefined ? null : Number(match[1]);
+}
+
+export function retryWhileWaking(failures: number, error: Error): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 503 &&
+    error.busy &&
+    failures < WAKE_RETRIES
+  );
 }
 
 export function prewarmEmbedder(): void {
