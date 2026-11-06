@@ -1,6 +1,6 @@
 const CAPTION_MODEL = "google/gemma-4-26b-a4b-it";
 export const CAPTION_PREFIX = "title: none | text: ";
-const CAPTION_CONCURRENCY = 8;
+const CAPTION_CONCURRENCY = 32;
 export const MAX_COST_USD = 0.1;
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
