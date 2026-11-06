@@ -4,34 +4,70 @@ import type {
   Film,
   FilmsReply,
   FlagsReply,
+  Hit,
   SearchLogReply,
   SearchReply,
   SimilarReply,
 } from "@framesearch/schema";
 
-const SEARCH_K = 24;
-const SIMILAR_K = 12;
-
 export class ApiError extends Error {
-  readonly retryable: boolean;
+  readonly status: number;
+  readonly busy: boolean;
 
-  constructor(message: string, retryable: boolean) {
+  constructor(message: string, status: number, busy: boolean) {
     super(message);
     this.name = "ApiError";
-    this.retryable = retryable;
+    this.status = status;
+    this.busy = busy;
   }
 }
 
-async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
-  const body = await readJson(response);
-  if (!response.ok) {
+interface Reply<T> {
+  body: T;
+  serverMs: number | null;
+}
+
+async function getJson<T>(url: string, signal: AbortSignal): Promise<Reply<T>> {
+  let response: Response;
+  try {
+    response = await fetch(url, { signal });
+  } catch (error) {
+    if (signal.aborted) throw error;
     throw new ApiError(
-      errorMessage(body) ?? `the server answered ${response.status}`,
-      response.status === 503 && response.headers.get("retry-after") !== null,
+      "The search service could not be reached. Check your connection and retry.",
+      0,
+      false,
     );
   }
-  return body as T;
+  const body = await readJson(response);
+  if (!response.ok) throw failure(response, body);
+  return {
+    body: body as T,
+    serverMs: serverTotal(response.headers.get("server-timing")),
+  };
+}
+
+function failure(response: Response, body: unknown): ApiError {
+  const { status } = response;
+  if (status === 429) {
+    return new ApiError(
+      "Too many searches from this address. Retry in a minute.",
+      status,
+      true,
+    );
+  }
+  if (status === 503 && response.headers.get("retry-after") !== null) {
+    return new ApiError(
+      "The search model is waking up. Retry in a few seconds.",
+      status,
+      true,
+    );
+  }
+  return new ApiError(
+    errorMessage(body) ?? `The search service answered ${status}.`,
+    status,
+    false,
+  );
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -50,38 +86,59 @@ function errorMessage(body: unknown): string | null {
   return null;
 }
 
+export function serverTotal(header: string | null): number | null {
+  const match = /(?:^|,)\s*total;dur=([\d.]+)/.exec(header ?? "");
+  return match?.[1] === undefined ? null : Number(match[1]);
+}
+
 export function prewarmEmbedder(): void {
   void fetch("/api/prewarm").catch(() => undefined);
 }
 
 export async function getFilms(signal: AbortSignal): Promise<Film[]> {
   const reply = await getJson<FilmsReply>("/api/films", signal);
-  return reply.films;
+  return reply.body.films;
 }
 
 export async function getFlags(signal: AbortSignal): Promise<FlagsReply> {
-  return getJson<FlagsReply>("/api/flags", signal);
+  const reply = await getJson<FlagsReply>("/api/flags", signal);
+  return reply.body;
+}
+
+export interface Found {
+  reply: SearchReply;
+  serverMs: number | null;
 }
 
 export async function searchShots(
   term: string,
-  film: string,
+  k: number,
   signal: AbortSignal,
-): Promise<SearchReply> {
-  const params = new URLSearchParams({ q: term, k: String(SEARCH_K) });
-  if (film !== "") params.set("film", film);
-  return getJson<SearchReply>(`/api/search?${params.toString()}`, signal);
+): Promise<Found> {
+  const params = new URLSearchParams({ q: term, k: String(k) });
+  const { body, serverMs } = await getJson<SearchReply>(
+    `/api/search?${params.toString()}`,
+    signal,
+  );
+  return { reply: body, serverMs };
 }
 
 export async function similarShots(
-  shotId: number,
+  shot: Hit,
+  k: number,
   signal: AbortSignal,
-): Promise<SimilarReply> {
+): Promise<Hit[]> {
   const params = new URLSearchParams({
-    id: String(shotId),
-    k: String(SIMILAR_K),
+    id: String(shot.shotId),
+    k: String(k + 1),
   });
-  return getJson<SimilarReply>(`/api/similar?${params.toString()}`, signal);
+  const { body } = await getJson<SimilarReply>(
+    `/api/similar?${params.toString()}`,
+    signal,
+  );
+  return body.results
+    .filter((entry) => entry.shotId !== shot.shotId)
+    .slice(0, k);
 }
 
 export async function logSearch(reply: SearchReply): Promise<number | null> {
