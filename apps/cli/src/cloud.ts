@@ -14,6 +14,9 @@ const OBJECTS_PAGE = 1000;
 const STAMP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const UPLOAD_CONCURRENCY = 8;
+const BULK_CHUNK = 200;
+const RATE_ATTEMPTS = 8;
+const RATE_WAIT_MS = 60_000;
 
 interface StoredObject {
   key: string;
@@ -61,7 +64,25 @@ export async function putObjects(
     sameType.push(object);
   }
   for (const [contentType, batch] of byType) {
-    await bulkPut(batch, contentType);
+    for (let at = 0; at < batch.length; at += BULK_CHUNK) {
+      await bulkPutPaced(batch.slice(at, at + BULK_CHUNK), contentType);
+    }
+  }
+}
+
+async function bulkPutPaced(
+  objects: readonly StoredObject[],
+  contentType: string,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await bulkPut(objects, contentType);
+      return;
+    } catch (error) {
+      const limited = error instanceof Error && error.message.includes("429");
+      if (!limited || attempt >= RATE_ATTEMPTS) throw error;
+      await Bun.sleep(RATE_WAIT_MS);
+    }
   }
 }
 
