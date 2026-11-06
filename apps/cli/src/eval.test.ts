@@ -65,7 +65,7 @@ test("thresholds gate only the per-film score", async () => {
     mrrAt10: 1,
   });
   expect(run.gated.hitAt1).toBe(2);
-  expect(run.crossFilm.hitAt5).toBe(0);
+  expect(run.crossFilm).toMatchObject({ hitAt5: 0 });
   expect(run.failures).toEqual([]);
 });
 
@@ -79,7 +79,30 @@ test("the cross-film score cannot fail the run even at zero", async () => {
         ],
   );
   const run = await runEval("https://site.test", cases, { hitAt5: 2 });
-  expect(run.crossFilm.hitAt5).toBe(0);
+  expect(run.crossFilm).toMatchObject({ hitAt5: 0 });
+  expect(run.failures).toEqual([]);
+});
+
+test("a cross-film pass that errors cannot fail the run", async () => {
+  globalThis.fetch = Object.assign(
+    async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.searchParams.get("film") === null) {
+        return new Response("upstream down", { status: 502 });
+      }
+      return Response.json({
+        results: [
+          { film: url.searchParams.get("film"), shotStart: 10, shotEnd: 50 },
+        ],
+      });
+    },
+    { preconnect: realFetch.preconnect },
+  );
+  const run = await runEval("https://site.test", cases, { hitAt5: 2 });
+  expect(run.gated.hitAt5).toBe(2);
+  expect(run.crossFilm).toMatchObject({
+    error: expect.stringContaining("502"),
+  });
   expect(run.failures).toEqual([]);
 });
 

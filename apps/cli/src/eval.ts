@@ -74,7 +74,7 @@ export function parseCases(raw: unknown): EvalCase[] {
 
 export interface EvalRun {
   gated: EvalReport;
-  crossFilm: EvalReport;
+  crossFilm: EvalReport | { error: string };
   failures: string[];
 }
 
@@ -84,7 +84,11 @@ export async function runEval(
   thresholds: Thresholds,
 ): Promise<EvalRun> {
   const gated = await evaluate(baseUrl, cases, "per-film");
-  const crossFilm = await evaluate(baseUrl, cases, "all-films");
+  const crossFilm = await evaluate(baseUrl, cases, "all-films").catch(
+    (error: unknown) => ({
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
   return { gated, crossFilm, failures: belowThresholds(gated, thresholds) };
 }
 

@@ -147,7 +147,14 @@ async function main(): Promise<void> {
       [
         renderEval(gated, `gated, each query within its film`, file, baseUrl),
         "",
-        renderEval(crossFilm, `informational, across all films`, file, baseUrl),
+        "error" in crossFilm
+          ? `informational, across all films: not scored, ${crossFilm.error}`
+          : renderEval(
+              crossFilm,
+              `informational, across all films`,
+              file,
+              baseUrl,
+            ),
       ].join("\n"),
     );
     if (failures.length > 0) {
