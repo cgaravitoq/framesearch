@@ -59,6 +59,7 @@ You need a Cloudflare account with Workers, D1, R2 and Containers, plus Bun 1.4 
 3. `bun install`, then `bun run typecheck`, `bun run lint` and `bun run test`.
 4. Create the tables, ship the API and warm the embedder: `bun run --cwd apps/api migrate`, `bun run --cwd apps/web build`, `bun run --cwd apps/api deploy`, then `curl https://<your-worker>/api/prewarm` so the first search does not wait for the model to load.
 5. Index a film on your machine: `bun run framesearch index night.mp4 --title "Night of the Living Dead"`. It needs `OPENROUTER_API_KEY` for the captions.
+   No GPU is required: video decoding moves to the GPU only when ffmpeg can use VAAPI on `/dev/dri/renderD128` and otherwise stays on the CPU, and `EMBED_URL` can be a llama.cpp server on CPU, CUDA, Metal or Vulkan, or any OpenAI-compatible embeddings endpoint.
 6. Publish it: `bun run framesearch publish night-of-the-living-dead` writes the frames and vectors to R2 and the rows to D1.
 
 Merging to main also deploys: `.github/workflows/deploy.yml` wants `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, applies migrations, deploys, warms the embedder with the same prewarm call, then runs `framesearch eval` against the live URL, which searches each query within its own film, and rolls the Worker back when that per-film hit@5 or MRR@10 fall below the thresholds; the cross-film score prints alongside as information only.
