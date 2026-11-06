@@ -31,7 +31,7 @@ export function AboutPage() {
           open an issue at{" "}
           <a
             href={ISSUES}
-            className="text-ink underline underline-offset-4 hover:text-accent"
+            className="text-ink underline underline-offset-4 [overflow-wrap:anywhere] hover:text-accent"
           >
             {ISSUES}
           </a>{" "}

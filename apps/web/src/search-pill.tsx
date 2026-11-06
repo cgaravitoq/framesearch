@@ -58,7 +58,7 @@ export function SearchPill({
             placeholder={placeholder}
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            className="body-5 min-w-0 flex-1 appearance-none bg-transparent text-paper placeholder:text-paper/60 [&::-webkit-search-cancel-button]:hidden"
+            className="body-5 min-w-0 flex-1 appearance-none text-ellipsis bg-transparent text-paper placeholder:text-paper/60 [&::-webkit-search-cancel-button]:hidden"
           />
           <button
             type="submit"

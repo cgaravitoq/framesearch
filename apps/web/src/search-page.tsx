@@ -691,7 +691,7 @@ function Detail({
         srcSet={srcSetOf(shot)}
         sizes="(max-width: 1023px) 100vw, 440px"
         alt={captionOf(shot)}
-        className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
+        className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover max-lg:max-h-[55svh]"
       />
 
       <div>
