@@ -72,6 +72,28 @@ export function parseCases(raw: unknown): EvalCase[] {
   });
 }
 
+export async function publishedCases(
+  baseUrl: string,
+  cases: readonly EvalCase[],
+): Promise<{ scored: EvalCase[]; skipped: EvalCase[] }> {
+  const url = `${baseUrl}/api/films`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+  const body: unknown = await response.json();
+  if (!isRecord(body) || !Array.isArray(body.films)) {
+    throw new Error(`${url} answered without a films array`);
+  }
+  const published = new Set(
+    body.films.flatMap((film: unknown) =>
+      isRecord(film) && typeof film.slug === "string" ? [film.slug] : [],
+    ),
+  );
+  return {
+    scored: cases.filter((testCase) => published.has(testCase.film)),
+    skipped: cases.filter((testCase) => !published.has(testCase.film)),
+  };
+}
+
 export interface EvalRun {
   gated: EvalReport;
   crossFilm: EvalReport | { error: string };
@@ -144,11 +166,17 @@ export function belowThresholds(
   thresholds: Thresholds,
 ): string[] {
   const failures: string[] = [];
-  if (thresholds.hitAt1 !== undefined && report.hitAt1 < thresholds.hitAt1) {
-    failures.push(`hit@1 ${report.hitAt1} is below ${thresholds.hitAt1}`);
+  const hitAt1 = report.total === 0 ? 0 : report.hitAt1 / report.total;
+  const hitAt5 = report.total === 0 ? 0 : report.hitAt5 / report.total;
+  if (thresholds.hitAt1 !== undefined && hitAt1 < thresholds.hitAt1) {
+    failures.push(
+      `hit@1 ${report.hitAt1}/${report.total} is below ${thresholds.hitAt1}`,
+    );
   }
-  if (thresholds.hitAt5 !== undefined && report.hitAt5 < thresholds.hitAt5) {
-    failures.push(`hit@5 ${report.hitAt5} is below ${thresholds.hitAt5}`);
+  if (thresholds.hitAt5 !== undefined && hitAt5 < thresholds.hitAt5) {
+    failures.push(
+      `hit@5 ${report.hitAt5}/${report.total} is below ${thresholds.hitAt5}`,
+    );
   }
   if (thresholds.mrrAt10 !== undefined && report.mrrAt10 < thresholds.mrrAt10) {
     failures.push(
