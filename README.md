@@ -10,7 +10,8 @@ It ships with one film, Night of the Living Dead, and anyone can search it read-
 - `apps/api` (Hono on Workers): reads through one D1 session served by a nearby replica, embeds the query, ranks the int8 frame and caption vectors held in memory, asks D1 FTS5 for keyword hits, fuses both with RRF and returns each shot once.
   Every search and similar reply carries a `server-timing` header with the D1, embed and total milliseconds.
 - `apps/embedder`: llama.cpp serving EmbeddingGemma 2 in a Cloudflare container reached through a Durable Object, with a primary instance plus two overflow instances, each sleeping after 10 idle minutes (`sleepAfter`) since every page load prewarms it, so the deployed Worker carries no embeddings key.
-- `apps/web`: the React SPA the same Worker serves, search as you type, English UI with English and Spanish example queries.
+- `apps/web`: the React SPA the same Worker serves: a landing page at `/` and the search at `/search`, which searches as you type, opens a shot with its similar shots and its place in the film, and takes English and Spanish queries.
+  It self-hosts its fonts (Space Grotesk, IBM Plex Sans and Geist Mono, under the OFL) and uses three MIT blocks from bencho, kept with their licence in `src/bencho`.
   Its `/about` page and the footer on every page say the frames are copyrighted, shown at reduced resolution as a fair-use defence with no licence granted, and that rights holders ask for removal through GitHub issues.
 - `packages/schema` and `packages/core`: the contracts and the pure ranking code both sides share.
 
