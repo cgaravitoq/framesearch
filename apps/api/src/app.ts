@@ -13,7 +13,7 @@ import type {
   SearchReply,
   SimilarReply,
 } from "@framesearch/schema";
-import { frameKey } from "@framesearch/schema";
+import { frameKey, THUMB_WIDTH, thumbKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { cacheKey, readCache, writeCache } from "./cache.ts";
 import type { EmbedTrace } from "./embedder-routing.ts";
@@ -35,6 +35,7 @@ import {
 import { publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
+const THUMB_SUFFIX = `-${THUMB_WIDTH}`;
 const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
 const SEARCH_CACHE_SECONDS = 60;
@@ -70,11 +71,16 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!name.endsWith(FRAME_SUFFIX)) {
       return failure(`no frame for ${c.req.path}`, 404);
     }
-    const idx = name.slice(0, -FRAME_SUFFIX.length);
+    const stem = name.slice(0, -FRAME_SUFFIX.length);
+    const thumb = stem.endsWith(THUMB_SUFFIX);
+    const idx = thumb ? stem.slice(0, -THUMB_SUFFIX.length) : stem;
     if (!FRAME_INDEX.test(idx)) {
       return failure("frame index must be a non-negative integer", 400);
     }
-    const object = await c.env.FRAMES.get(frameKey(film.value, Number(idx)));
+    const key = thumb
+      ? thumbKey(film.value, Number(idx))
+      : frameKey(film.value, Number(idx));
+    const object = await c.env.FRAMES.get(key);
     if (object === null) return failure("frame not found", 404);
     return new Response(object.body, {
       headers: {

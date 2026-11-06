@@ -78,6 +78,7 @@ function shot(shotId: number): Hit {
     shotStart: shotId * 60,
     shotEnd: shotId * 60 + 4,
     frameUrl: `/frames/night/${shotId}.webp`,
+    thumbUrl: `/frames/night/${shotId}-480.webp`,
     caption: `shot ${shotId}`,
     tags: [],
     score: 1,
