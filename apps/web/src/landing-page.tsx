@@ -356,14 +356,14 @@ const FIGURES = [
     note: "Ranking grows in step with the index: 58.8 ms at 100,000.",
   },
   {
-    value: "58 of 59",
+    value: "30 of 36",
     label: "found in the top five",
-    note: "Queries across 3 films that land the right shot in the first five.",
+    note: "Queries searched across all 8 films at once that land the right shot in the first five.",
   },
   {
-    value: "0.958",
+    value: "0.742",
     label: "mean reciprocal rank",
-    note: "The right shot is almost always the first one you see.",
+    note: "On average the right shot is the first or second one you see.",
   },
 ];
 
