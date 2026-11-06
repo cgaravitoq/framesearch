@@ -1,79 +1,162 @@
-import type { Hit, SearchReply, SimilarReply } from "@framesearch/schema";
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { Hero } from "./hero";
+import type { Film, Hit, SearchReply } from "@framesearch/schema";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowLeft, Copy, RotateCcw, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Compare } from "./bencho/image-compare/Compare";
+import "./bencho/image-compare/Compare.css";
+import { Scrub } from "./bencho/time-scrubber/Scrub";
+import "./bencho/time-scrubber/Scrub.css";
+import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
+import "./bencho/toast-stack/ToastStack.css";
+import { LegalFooter, Logo, TwoTone } from "./chrome";
 import {
   ApiError,
-  getFilms,
+  type Found,
   getFlags,
   logClick,
   logSearch,
   searchShots,
   similarShots,
 } from "./lib/api";
-import { clock } from "./lib/time";
-import { ShotGrid } from "./shot-grid";
-import { SiteFooter } from "./site-footer";
+import { useFilms } from "./lib/films";
+import { EASE, useReducedMotion, useWidth } from "./lib/motion";
+import { timecode } from "./lib/time";
+import { SearchPill } from "./search-pill";
 
-const DEBOUNCE_MS = 300;
-const MIN_QUERY_LENGTH = 3;
+const DEBOUNCE_MS = 320;
 const LOG_SETTLE_MS = 1200;
+const SIMILAR_K = 8;
+const SIZES = [12, 24, 48];
+const SLOTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const EXAMPLES = [
-  "a helicopter over a field",
-  "niña llorando en un carrito",
-  "a woman screaming in close-up",
-  "un cementerio bajo la niebla",
+const STARTERS = [
+  { q: "a farmhouse at night", still: "farmhouse-night" },
+  { q: "a car on a country road", still: "car-road-wide" },
+  { q: "a cemetery with gravestones", still: "cemetery-fog" },
+  { q: "a woman looking out of a window", still: "window-rain" },
+  { q: "headlights on a dark road", still: "car-road-night" },
+  { q: "una mujer bajando una escalera", still: "staircase-descent" },
 ];
 
-export function SearchPage() {
-  const [input, setInput] = useState("");
-  const [term, setTerm] = useState("");
-  const [film, setFilm] = useState("");
-  const [submits, setSubmits] = useState(0);
-  const [hero, setHero] = useState<Hit | null>(null);
-  const [similarFrom, setSimilarFrom] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const queryClient = useQueryClient();
+type Results =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string; busy: boolean }
+  | { status: "done"; shots: Hit[]; serverMs: number | null };
+
+type Related =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "done"; shots: Hit[] };
+
+export interface SearchStart {
+  q: string;
+  shot: number | null;
+}
+
+let toastId = 1;
+
+function captionOf(shot: Hit): string {
+  return shot.caption ?? `${shot.title} at ${timecode(shot.time)}`;
+}
+
+export function SearchPage({ start }: { start: SearchStart }) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState(start.q);
+  const [term, setTerm] = useState(start.q.trim());
+  const [k, setK] = useState(12);
+  const [selected, setSelected] = useState<Hit | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const wanted = useRef<number | null>(start.shot);
+  const films = useFilms();
   const settledLog = useRef<{
     reply: SearchReply;
     id: Promise<number | null>;
   } | null>(null);
 
-  const films = useQuery({
-    queryKey: ["films"],
-    queryFn: ({ signal }) => getFilms(signal),
-  });
+  const toast = useCallback((next: Omit<Toast, "id">) => {
+    const id = toastId++;
+    setToasts((list) =>
+      [
+        { ...next, id },
+        ...list.filter((entry) => entry.title !== next.title),
+      ].slice(0, 3),
+    );
+    if (next.kind === "success" || next.kind === "info") {
+      window.setTimeout(
+        () => setToasts((list) => list.filter((entry) => entry.id !== id)),
+        4200,
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const trimmed = q.trim();
+    if (trimmed === "") {
+      setTerm("");
+      return;
+    }
+    const timer = window.setTimeout(() => setTerm(trimmed), DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [q]);
 
   const flags = useQuery({
     queryKey: ["flags"],
     queryFn: ({ signal }) => getFlags(signal),
+    staleTime: Number.POSITIVE_INFINITY,
   });
   const searchLog = flags.data?.searchLog ?? true;
 
   const search = useQuery({
-    queryKey: ["search", term, film, submits],
-    queryFn: ({ signal }) => searchShots(term, film, signal),
+    queryKey: ["search", term, k],
+    queryFn: ({ signal }) => searchShots(term, k, signal),
     enabled: term !== "",
-    placeholderData: keepPreviousData,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
-  const similar = useQuery({
-    queryKey: ["similar", similarFrom],
-    queryFn: ({ signal }) => similarShots(similarFrom, signal),
-    enabled: similarFrom > 0,
+  const related = useQuery({
+    queryKey: ["similar", selected?.shotId ?? 0],
+    queryFn: ({ signal }) =>
+      selected === null
+        ? Promise.resolve([])
+        : similarShots(selected, SIMILAR_K, signal),
+    enabled: selected !== null,
+    staleTime: Number.POSITIVE_INFINITY,
   });
+
+  const found: Found | undefined = search.data;
+  useEffect(() => {
+    if (found === undefined || wanted.current === null) return;
+    const hit = found.reply.results.find(
+      (shot) => shot.shotId === wanted.current,
+    );
+    if (hit !== undefined) setSelected(hit);
+    wanted.current = null;
+  }, [found]);
+
+  useEffect(() => {
+    const error = search.error;
+    if (error === null) return;
+    const busy = error instanceof ApiError && error.busy;
+    toast({
+      kind: busy ? "warning" : "error",
+      title: busy ? "Search is busy" : "Search failed",
+      body: error.message,
+      action: "Retry",
+    });
+  }, [search.error, toast]);
+
+  useEffect(() => {
+    if (related.error === null) return;
+    toast({
+      kind: "error",
+      title: "Similar shots failed",
+      body: related.error.message,
+    });
+  }, [related.error, toast]);
 
   const settleSearchLog = useCallback(
     (reply: SearchReply) => {
@@ -88,191 +171,615 @@ export function SearchPage() {
   );
 
   useEffect(() => {
-    const trimmed = input.trim();
-    if (trimmed.length < MIN_QUERY_LENGTH || trimmed === term) return;
-    const timer = setTimeout(() => setTerm(trimmed), DEBOUNCE_MS);
-    debounceTimer.current = timer;
-    return () => clearTimeout(timer);
-  }, [input, term]);
-
-  useEffect(() => {
-    if (search.data === undefined) return;
-    setHero(search.data.results[0] ?? null);
-    setSimilarFrom(0);
-  }, [search.data]);
-
-  useEffect(() => {
-    if (search.data === undefined || search.isFetching) return;
-    const reply = search.data;
-    const timer = setTimeout(() => {
-      void settleSearchLog(reply);
+    if (found === undefined || search.isFetching) return;
+    const timer = window.setTimeout(() => {
+      void settleSearchLog(found.reply);
     }, LOG_SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [search.data, search.isFetching, settleSearchLog]);
+    return () => window.clearTimeout(timer);
+  }, [found, search.isFetching, settleSearchLog]);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmed = input.trim();
-    if (trimmed === "") {
-      inputRef.current?.focus();
-      return;
-    }
-    setTerm(trimmed);
-    setSubmits((count) => count + 1);
-  };
-
-  const pickExample = (example: string) => {
-    setInput(example);
-    setTerm(example);
-  };
-
-  const findSimilar = (shot: Hit) => {
-    clearTimeout(debounceTimer.current);
-    void queryClient.cancelQueries({ queryKey: ["search"] });
-    setSimilarFrom(shot.shotId);
-  };
-
-  const pickShot = (shot: Hit) => {
-    setHero(shot);
-    if (similarFrom > 0 || search.data === undefined) return;
-    const at = search.data.results.findIndex(
-      (entry) => entry.shotId === shot.shotId,
-    );
-    void settleSearchLog(search.data).then((id) => {
-      if (id !== null) void logClick(id, shot.shotId, at < 0 ? null : at + 1);
+  const writeUrl = (query: string, shot: number | null, push = false) => {
+    void navigate({
+      to: "/search",
+      search: {
+        ...(query === "" ? {} : { q: query }),
+        ...(shot === null ? {} : { shot }),
+      },
+      replace: !push,
+      resetScroll: push,
     });
   };
 
-  const similarReply = similarFrom > 0 ? similar.data : undefined;
-  const shots = similarReply?.results ?? search.data?.results ?? [];
-  const failure = search.error ?? similar.error;
-  const busy = search.isFetching || similar.isFetching;
+  const updateQuery = (value: string) => {
+    setQ(value);
+    setSelected(null);
+    writeUrl(value.trim(), null);
+  };
+
+  const select = (shot: Hit | null) => {
+    setSelected(shot);
+    writeUrl(q.trim(), shot?.shotId ?? null, true);
+    if (shot === null || found === undefined) return;
+    const at = found.reply.results.findIndex(
+      (entry) => entry.shotId === shot.shotId,
+    );
+    if (at < 0) return;
+    void settleSearchLog(found.reply).then((id) => {
+      if (id !== null) void logClick(id, shot.shotId, at + 1);
+    });
+  };
+
+  const retry = () => void search.refetch();
+
+  const results = resultsOf(q, term, search, found);
+  const hasQuery = results.status !== "idle";
+  const film = films?.find((entry) => entry.slug === selected?.film);
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 sm:px-6">
-      <main className="flex flex-col gap-6 pt-7 pb-10">
-        <search>
-          <form
-            onSubmit={onSubmit}
-            className="flex flex-wrap items-center gap-3"
-          >
-            <span className="mr-3 font-mono text-[15px] font-medium text-accent">
-              framesearch
-            </span>
-            <label htmlFor="query" className="sr-only">
-              Describe a shot
-            </label>
-            <input
-              id="query"
-              ref={inputRef}
-              type="search"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="a woman screaming in close-up"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-12 min-w-0 flex-[1_1_280px] rounded-full border border-edge bg-field px-4.5 text-base text-ink placeholder:text-muted hover:border-edge-soft"
+    <div className="min-h-screen">
+      <a
+        href="#results"
+        className="skip-link button-sm rounded-full bg-ink px-4 py-2 text-paper"
+      >
+        Skip to results
+      </a>
+      <header className="sticky top-0 z-40 bg-paper/85 backdrop-blur-xl">
+        <div className="mx-auto grid max-w-[1440px] grid-cols-[1fr_minmax(0,672px)_1fr] items-center gap-6 px-6 py-4 max-md:grid-cols-[1fr_auto] max-md:gap-3 max-md:px-4">
+          <Logo className="justify-self-start" />
+          <div className="max-md:order-3 max-md:col-span-2">
+            <SearchPill
+              id="search-field"
+              value={q}
+              onChange={updateQuery}
+              onSubmit={updateQuery}
+              autoFocus
+              wide
+              placeholder="Describe a shot"
             />
-            <label htmlFor="film" className="sr-only">
-              Film
-            </label>
-            <select
-              id="film"
-              value={film}
-              onChange={(event) => setFilm(event.target.value)}
-              className="h-12 rounded-full border border-edge bg-field px-3.5 text-sm text-ink hover:border-edge-soft"
-            >
-              <option value="">All films</option>
-              {films.data?.map((entry) => (
-                <option key={entry.slug} value={entry.slug}>
-                  {entry.title}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="h-12 rounded-full border border-edge-soft bg-field px-4.5 text-sm font-medium text-ink hover:border-muted"
-            >
-              Search
-            </button>
-          </form>
-        </search>
+          </div>
+          <Link
+            to="/"
+            className="body-6 inline-flex items-center gap-2 justify-self-end rounded-full text-body hover:text-ink"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Home
+          </Link>
+        </div>
+      </header>
 
-        {hero !== null && (
-          <Hero
-            shot={hero}
-            similarPending={similar.isFetching}
-            onSimilar={() => findSimilar(hero)}
+      <div className="mx-auto max-w-[1440px] px-6 max-md:px-4">
+        <main id="results">
+          {!hasQuery ? (
+            <Starters onPick={updateQuery} />
+          ) : (
+            <div
+              className={`grid gap-12 pt-8 pb-24 ${selected ? "lg:grid-cols-[minmax(0,1fr)_440px]" : ""}`}
+            >
+              <div
+                className="min-w-0"
+                aria-live="polite"
+                aria-busy={results.status === "loading"}
+              >
+                <ResultsView
+                  q={q}
+                  results={results}
+                  selected={selected}
+                  wide={selected === null}
+                  onSelect={select}
+                  onExample={updateQuery}
+                  onRetry={retry}
+                  k={k}
+                  onK={setK}
+                />
+              </div>
+              <AnimatePresence mode="wait">
+                {selected !== null && (
+                  <Detail
+                    key={selected.shotId}
+                    shot={selected}
+                    film={film}
+                    related={relatedOf(related)}
+                    results={results.status === "done" ? results.shots : []}
+                    onSelect={select}
+                    onClose={() => select(null)}
+                    onCopy={() => {
+                      const code = timecode(selected.time);
+                      navigator.clipboard
+                        ?.writeText(`${selected.title} ${code}`)
+                        .catch(() => undefined);
+                      toast({
+                        kind: "success",
+                        title: `Timecode ${code} copied`,
+                        body: selected.title,
+                      });
+                    }}
+                  />
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </main>
+        <LegalFooter
+          note={
+            searchLog
+              ? "Searches are logged anonymously: the query and the shots you open, never your IP."
+              : null
+          }
+        />
+      </div>
+
+      <div className="fixed right-6 bottom-6 z-50 max-sm:right-4 max-sm:bottom-4 max-sm:left-4 max-sm:[&>.tst]:w-full!">
+        {toasts.length > 0 && (
+          <ToastStack
+            corner={16}
+            toasts={toasts}
+            onDismiss={(id) =>
+              setToasts((list) => list.filter((entry) => entry.id !== id))
+            }
+            onAction={(id) => {
+              setToasts((list) => list.filter((entry) => entry.id !== id));
+              retry();
+            }}
           />
         )}
-
-        {hero === null && (
-          <section className="flex flex-col gap-3">
-            <p className="m-0 text-sm text-muted">
-              Describe the shot you remember. Results appear as you type.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {EXAMPLES.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => pickExample(example)}
-                  className="rounded-full border border-edge px-3 py-1.5 text-sm text-body hover:border-edge-soft"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {(search.data !== undefined || failure !== null) && (
-          <section aria-busy={busy} className="flex flex-col gap-2.5">
-            <p aria-live="polite" className="m-0 font-mono text-xs text-muted">
-              {labelFor(shots.length, search.data, similarReply, hero)}
-            </p>
-            {failure !== null && (
-              <p className="m-0 font-mono text-xs text-danger">
-                {failureMessage(failure)}
-              </p>
-            )}
-            {shots.length > 0 && (
-              <ShotGrid
-                shots={shots}
-                selectedId={hero?.shotId ?? null}
-                onPick={pickShot}
-              />
-            )}
-          </section>
-        )}
-
-        {searchLog && (
-          <p className="m-0 text-xs text-muted">
-            Searches are logged anonymously: the query and the shots you open,
-            never your IP.
-          </p>
-        )}
-      </main>
-      <SiteFooter />
+      </div>
     </div>
   );
 }
 
-export function failureMessage(error: Error): string {
-  if (error instanceof ApiError && error.retryable) return error.message;
-  return `Search failed: ${error.message}`;
+function resultsOf(
+  q: string,
+  term: string,
+  search: { isFetching: boolean; error: Error | null },
+  found: Found | undefined,
+): Results {
+  const trimmed = q.trim();
+  if (trimmed === "") return { status: "idle" };
+  if (trimmed !== term || search.isFetching) return { status: "loading" };
+  if (search.error !== null) {
+    return {
+      status: "error",
+      message: search.error.message,
+      busy: search.error instanceof ApiError && search.error.busy,
+    };
+  }
+  if (found === undefined) return { status: "loading" };
+  return {
+    status: "done",
+    shots: found.reply.results,
+    serverMs: found.serverMs,
+  };
 }
 
-function labelFor(
-  count: number,
-  reply: SearchReply | undefined,
-  similar: SimilarReply | undefined,
-  hero: Hit | null,
-): string {
-  if (similar !== undefined && hero !== null) {
-    return `${count} similar shots to ${hero.title} at ${clock(hero.time)}`;
+function relatedOf(query: {
+  isFetching: boolean;
+  error: Error | null;
+  data: Hit[] | undefined;
+}): Related {
+  if (query.isFetching) return { status: "loading" };
+  if (query.error !== null) {
+    return { status: "error", message: query.error.message };
   }
-  if (reply === undefined) return "";
-  if (count === 0) return `No results for "${reply.query}"`;
-  return `${count} results for "${reply.query}"`;
+  if (query.data === undefined) return { status: "idle" };
+  return { status: "done", shots: query.data };
+}
+
+function Starters({ onPick }: { onPick: (q: string) => void }) {
+  return (
+    <section className="pt-12 pb-24" aria-labelledby="start-title">
+      <h1 id="start-title" className="text-center">
+        <TwoTone
+          grey="Describe the shot you remember,"
+          black="or start from one of these."
+        />
+      </h1>
+      <ul className="mx-auto mt-16 grid max-w-6xl grid-cols-3 gap-x-6 gap-y-12 max-md:grid-cols-2 max-sm:grid-cols-1">
+        {STARTERS.map((starter) => (
+          <li key={starter.q}>
+            <button
+              type="button"
+              onClick={() => onPick(starter.q)}
+              className="group block w-full rounded-[var(--radius-sm)] text-left"
+            >
+              <img
+                src={`/examples/${starter.still}.webp`}
+                alt=""
+                className="block aspect-[3/2] w-full rounded-[var(--radius-sm)] object-cover opacity-95 group-hover:opacity-100"
+                loading="lazy"
+              />
+              <span className="title-2 mt-4 block text-ink group-hover:underline group-hover:underline-offset-4">
+                “{starter.q}”
+              </span>
+              <span className="caption-2 mt-1 block text-body">
+                Search the index for it
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function Card({
+  shot,
+  on,
+  onSelect,
+  i,
+}: {
+  shot: Hit;
+  on: boolean;
+  onSelect: () => void;
+  i: number;
+}) {
+  const reduced = useReducedMotion();
+  return (
+    <motion.li
+      initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: EASE, delay: Math.min(i * 0.03, 0.3) }}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={on}
+        className="group block w-full rounded-[var(--radius-sm)] text-left"
+      >
+        <img
+          src={shot.frameUrl}
+          alt={captionOf(shot)}
+          loading="lazy"
+          className={`block aspect-[4/3] w-full rounded-[var(--radius-sm)] bg-tint object-cover ${
+            on
+              ? "outline-2 outline-offset-2 outline-ink"
+              : "group-hover:opacity-90"
+          }`}
+        />
+        <span className="flex items-baseline justify-between gap-2 pt-3">
+          <span className="caption-4 truncate text-body">{shot.title}</span>
+          <span className="numeric caption-4 shrink-0 text-ink">
+            {timecode(shot.time)}
+          </span>
+        </span>
+        <span className="caption-2 line-clamp-2 pt-1 text-ink-2">
+          {shot.caption}
+        </span>
+      </button>
+    </motion.li>
+  );
+}
+
+function ResultsView({
+  q,
+  results,
+  selected,
+  wide,
+  onSelect,
+  onExample,
+  onRetry,
+  k,
+  onK,
+}: {
+  q: string;
+  results: Results;
+  selected: Hit | null;
+  wide: boolean;
+  onSelect: (shot: Hit) => void;
+  onExample: (q: string) => void;
+  onRetry: () => void;
+  k: number;
+  onK: (size: number) => void;
+}) {
+  const show = (
+    <div
+      role="radiogroup"
+      aria-label="Shots per search"
+      className="flex shrink-0 items-center gap-1"
+    >
+      <span className="caption-2 mr-2 text-body max-sm:sr-only">Show</span>
+      {SIZES.map((size) => (
+        <label
+          key={size}
+          className={`numeric caption-1 cursor-pointer rounded-full px-3 py-1 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-3 has-[:focus-visible]:outline-accent ${k === size ? "bg-ink text-paper" : "text-body hover:bg-tint"}`}
+        >
+          <input
+            type="radio"
+            name="shots-per-search"
+            value={size}
+            checked={k === size}
+            onChange={() => onK(size)}
+            className="sr-only"
+          />
+          {size}
+        </label>
+      ))}
+    </div>
+  );
+  const grid = `grid gap-x-6 gap-y-10 ${wide ? "grid-cols-4 max-xl:grid-cols-3" : "grid-cols-3 max-xl:grid-cols-2"} max-md:grid-cols-2 max-sm:grid-cols-1`;
+  if (results.status === "loading" || results.status === "idle") {
+    return (
+      <div>
+        <div className="flex items-start justify-between gap-4 pb-6">
+          <p className="title-4 min-w-0 text-body">
+            Searching for “{q.trim()}”
+          </p>
+          {show}
+        </div>
+        <ul className={grid} aria-label="Loading results">
+          {SLOTS.map((slot) => (
+            <li key={slot}>
+              <div className="shimmer aspect-[4/3] rounded-[var(--radius-sm)]" />
+              <div className="shimmer mt-3 h-3 w-1/2 rounded-full" />
+              <div className="shimmer mt-2 h-3 w-4/5 rounded-full" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  if (results.status === "error") {
+    return (
+      <div role="alert" className="mx-auto max-w-xl py-16 text-center">
+        <h1>
+          <TwoTone
+            grey={
+              results.busy
+                ? "The search is busy."
+                : "The search did not finish."
+            }
+            black="Try it again."
+            className="heading-3"
+          />
+        </h1>
+        <p className="body-3 mt-6 text-body">{results.message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="button-sm mt-8 inline-flex items-center gap-2 rounded-full bg-ink px-6 py-2 text-paper"
+        >
+          <RotateCcw className="size-4" aria-hidden="true" />
+          Retry search
+        </button>
+      </div>
+    );
+  }
+  if (results.shots.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl py-16 text-center">
+        <h1>
+          <TwoTone
+            grey={`No shots match “${q.trim()}”.`}
+            black="Describe what is visible."
+            className="heading-3"
+          />
+        </h1>
+        <p className="body-3 mt-6 text-body">
+          Try fewer words, or the light, the place and the people rather than
+          the plot.
+        </p>
+        <div className="mt-8 flex flex-wrap justify-center gap-2">
+          {STARTERS.slice(0, 3).map((starter) => (
+            <button
+              key={starter.q}
+              type="button"
+              onClick={() => onExample(starter.q)}
+              className="body-5 rounded-full bg-tint px-4 py-2 hover:bg-tint-2"
+            >
+              {starter.q}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 pb-6">
+        <h1 className="title-4 min-w-0 text-body">
+          <span className="text-ink">{results.shots.length} shots</span> for “
+          {q.trim()}”
+          {results.serverMs !== null && (
+            <span>
+              {" "}
+              in <span className="numeric">{results.serverMs}</span> ms on the
+              server
+            </span>
+          )}
+        </h1>
+        {show}
+      </div>
+      <ul className={grid}>
+        {results.shots.map((shot, i) => (
+          <Card
+            key={shot.shotId}
+            shot={shot}
+            i={i}
+            on={selected?.shotId === shot.shotId}
+            onSelect={() => onSelect(shot)}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Detail({
+  shot,
+  film,
+  related,
+  results,
+  onSelect,
+  onClose,
+  onCopy,
+}: {
+  shot: Hit;
+  film: Film | undefined;
+  related: Related;
+  results: Hit[];
+  onSelect: (shot: Hit) => void;
+  onClose: () => void;
+  onCopy: () => void;
+}) {
+  const reduced = useReducedMotion();
+  const [boxRef, boxW] = useWidth<HTMLDivElement>();
+  const near = related.status === "done" ? related.shots : [];
+  const pool = useMemo(() => {
+    const byId = new Map<number, Hit>();
+    for (const entry of [...results, ...near, shot]) {
+      if (entry.film === shot.film) byId.set(entry.shotId, entry);
+    }
+    return [...byId.values()];
+  }, [results, near, shot]);
+  const closest = near[0];
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <motion.aside
+      aria-label={`Shot at ${timecode(shot.time)}`}
+      className="flex flex-col gap-8 max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:overflow-y-auto max-lg:bg-paper max-lg:p-4 lg:sticky lg:top-28 lg:max-h-[calc(100svh-8rem)] lg:self-start lg:overflow-y-auto"
+      initial={reduced ? { opacity: 0 } : { opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.5, ease: EASE }}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="caption-1 text-body">{shot.title}</p>
+          <p className="numeric heading-5 mt-1 font-medium">
+            {timecode(shot.time)}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="button-sm inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-paper"
+          >
+            <Copy className="size-4" aria-hidden="true" />
+            <span className="max-sm:sr-only">Copy timecode</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close shot"
+            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      <div ref={boxRef} className="w-full">
+        {closest !== undefined && boxW > 0 ? (
+          <Compare
+            key={`${shot.shotId}-${closest.shotId}`}
+            before={shot.frameUrl}
+            after={closest.frameUrl}
+            names={["This shot", `Closest, ${timecode(closest.time)}`]}
+            width={boxW}
+            height={Math.round(boxW * 0.75)}
+            corner={8}
+            label="Drag to compare this shot with its closest match"
+          />
+        ) : (
+          <img
+            src={shot.frameUrl}
+            alt={captionOf(shot)}
+            className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover"
+          />
+        )}
+      </div>
+
+      <div>
+        <p className="body-3">{shot.caption}</p>
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {shot.tags.map((tag) => (
+            <li
+              key={tag}
+              className="caption-4 rounded-full bg-tint px-3 py-1 text-body"
+            >
+              {tag}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {film !== undefined && (
+        <div className="flex flex-col items-center gap-3">
+          <p className="caption-1 self-start text-body">
+            Where it sits in the film. Drag to step through the shots you found.
+          </p>
+          <Scrub
+            duration={film.duration}
+            value={shot.time}
+            marks={pool.map((entry) => entry.time)}
+            corner={16}
+            onSettle={(time) => {
+              const hit = pool.find(
+                (entry) => Math.abs(entry.time - time) < 0.01,
+              );
+              if (hit !== undefined && hit.shotId !== shot.shotId)
+                onSelect(hit);
+            }}
+          />
+        </div>
+      )}
+
+      <div className="pb-2">
+        <h2 className="title-3">Shots that look like this</h2>
+        {related.status === "loading" && (
+          <ul
+            className="mt-4 grid grid-cols-4 gap-3 max-sm:grid-cols-2"
+            aria-label="Loading similar shots"
+          >
+            {SLOTS.map((slot) => (
+              <li
+                key={slot}
+                className="shimmer aspect-[4/3] rounded-[var(--radius-sm)]"
+              />
+            ))}
+          </ul>
+        )}
+        {related.status === "error" && (
+          <p className="body-6 mt-3 text-body">{related.message}</p>
+        )}
+        {related.status === "done" && related.shots.length === 0 && (
+          <p className="body-6 mt-3 text-body">
+            No other shot looks close to this one.
+          </p>
+        )}
+        {related.status === "done" && related.shots.length > 0 && (
+          <ul className="mt-4 grid grid-cols-4 gap-3 max-sm:grid-cols-2">
+            {related.shots.map((entry) => (
+              <li key={entry.shotId}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(entry)}
+                  className="group block w-full rounded-[var(--radius-sm)] text-left"
+                  aria-label={`Open similar shot at ${timecode(entry.time)}: ${captionOf(entry)}`}
+                >
+                  <img
+                    src={entry.frameUrl}
+                    alt=""
+                    loading="lazy"
+                    className="block aspect-[4/3] w-full rounded-[var(--radius-sm)] object-cover group-hover:opacity-90"
+                  />
+                  <span className="numeric caption-5 mt-1 block text-body">
+                    {timecode(entry.time)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </motion.aside>
+  );
 }

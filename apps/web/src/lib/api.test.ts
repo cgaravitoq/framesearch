@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ApiError, searchShots } from "./api.ts";
+import { ApiError, searchShots, serverTotal } from "./api.ts";
 
 function answer(
   status: number,
@@ -20,7 +20,7 @@ async function failure(
 ): Promise<ApiError> {
   answer(status, body, headers);
   try {
-    await searchShots("fire", "", new AbortController().signal);
+    await searchShots("fire", 12, new AbortController().signal);
   } catch (error) {
     if (error instanceof ApiError) return error;
     throw error;
@@ -29,32 +29,48 @@ async function failure(
 }
 
 describe("searchShots", () => {
-  test("retries a busy search and shows the message the API sent", async () => {
+  test("tells a busy model apart and asks for a retry", async () => {
     const error = await failure(
       503,
       { error: "Search is busy, try again in a moment" },
       { "retry-after": "2" },
     );
-    expect(error.retryable).toBe(true);
-    expect(error.message).toBe("Search is busy, try again in a moment");
+    expect(error.busy).toBe(true);
+    expect(error.message).toBe(
+      "The search model is waking up. Retry in a few seconds.",
+    );
   });
 
-  test("shows a rate limit without retrying it", async () => {
+  test("treats a rate limit as busy", async () => {
     const error = await failure(
       429,
       { error: "too many searches from this address, retry in a minute" },
       { "retry-after": "60" },
     );
-    expect(error.retryable).toBe(false);
+    expect(error.busy).toBe(true);
     expect(error.message).toBe(
-      "too many searches from this address, retry in a minute",
+      "Too many searches from this address. Retry in a minute.",
     );
   });
 
-  test("shows an unavailable search without retrying it", async () => {
+  test("shows an unavailable search with the message the API sent", async () => {
     const error = await failure(503, {
       error: "Search is temporarily unavailable",
     });
-    expect(error.retryable).toBe(false);
+    expect(error.busy).toBe(false);
+    expect(error.message).toBe("Search is temporarily unavailable");
+  });
+
+  test("reads the server total from the timing header", async () => {
+    answer(
+      200,
+      { query: "fire", film: null, results: [] },
+      {
+        "server-timing": 'd1;dur=68,embed;dur=354;desc="primary",total;dur=411',
+      },
+    );
+    const found = await searchShots("fire", 12, new AbortController().signal);
+    expect(found.serverMs).toBe(411);
+    expect(serverTotal(null)).toBeNull();
   });
 });

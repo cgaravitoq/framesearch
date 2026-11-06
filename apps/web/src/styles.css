@@ -1,33 +1,364 @@
 @import "tailwindcss";
+@import "./bencho/tokens.css";
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-400.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-500.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-600.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-500.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/space-grotesk-600.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/geist-mono-400.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/geist-mono-500.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 @theme {
-  --color-ground: #0b0b0c;
-  --color-field: #18191c;
-  --color-edge: #34353b;
-  --color-edge-soft: #45464d;
-  --color-ink: #eceae4;
-  --color-body: #d6d4cd;
-  --color-muted: #a3a19b;
-  --color-accent: #e8a33d;
-  --color-accent-bright: #f3c77e;
-  --color-on-accent: #141413;
-  --color-danger: #f0a8a8;
-  --font-sans: Inter, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --color-paper: #0e0e10;
+  --color-ink: #f2f1ee;
+  --color-ink-2: #d8d7d3;
+  --color-mute: #77777d;
+  --color-body: #a5a5aa;
+  --color-tint: #18181b;
+  --color-tint-2: #232327;
+  --color-rule: #26262a;
+  --color-accent: #e8b04b;
+  --color-night: #050506;
+  --color-cream: #ede9e1;
+  --color-ash: #8d8c88;
+  --radius-sm: 8px;
+  --radius-md: 16px;
 }
 
 :root {
+  --tracking-display: -0.03em;
+  --font-ui: var(--font-sans);
+  --bg: var(--color-paper);
+  --card: var(--color-tint);
+  --surface-2: var(--color-tint-2);
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
   color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
-  background-color: var(--color-ground);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+  margin: 0;
+  background: var(--color-paper);
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline-offset: 3px;
+}
+
+@layer components {
+  .heading-1 {
+    font-family: var(--font-display);
+    font-size: 3.75rem;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+  .heading-2 {
+    font-family: var(--font-display);
+    font-size: 3rem;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+  .heading-3 {
+    font-family: var(--font-display);
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  .heading-4 {
+    font-family: var(--font-display);
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .heading-5 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  .heading-6 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .title-1 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 500;
+  }
+  .title-2 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    font-weight: 500;
+  }
+  .title-3 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+  }
+  .title-4 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+  .title-5 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+  }
+  .body-2 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+  }
+  .body-3 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+  }
+  .body-5 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+  .body-6 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+  }
+  .button-md {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+  }
+  .button-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+  }
+  .caption-1 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+  }
+  .caption-2 {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+  }
+  .caption-4 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+  }
+  .caption-5 {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 400;
+  }
+  .numeric {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .ease-base {
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (max-width: 640px) {
+  .heading-1 {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+  .heading-2 {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+}
+
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  z-index: 100;
+  transform: translateY(-200%);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.skip-link:focus {
+  transform: none;
+}
+
+.dash-line-v {
+  width: 0;
+  border-left: 1px dashed rgba(237, 229, 216, 0.2);
+}
+.dash-line-h {
+  height: 0;
+  border-top: 1px dashed rgba(237, 229, 216, 0.2);
+}
+
+.foot-link .dash {
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.foot-link .rule {
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.foot-link:hover .dash,
+.foot-link:focus-visible .dash {
+  opacity: 1;
+  transform: none;
+}
+.foot-link:hover .rule,
+.foot-link:focus-visible .rule {
+  transform: scaleX(1);
+}
+.foot-link:hover .label,
+.foot-link:focus-visible .label {
+  color: var(--color-cream);
+}
+
+.shimmer {
+  background: var(--color-tint-2);
+  animation: shimmer 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+}
+@keyframes shimmer {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+  }
+}
+
+.search-pill input:focus,
+.search-pill input:focus-visible,
+.search-pill button:focus-visible {
+  outline: none;
+}
+.search-pill:has(input:focus-visible),
+.search-pill:has(button:focus-visible) {
+  box-shadow:
+    0 0 0 2px var(--color-paper),
+    0 0 0 4px var(--color-body);
+}
+
+@keyframes fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }

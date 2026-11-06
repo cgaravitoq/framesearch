@@ -9,8 +9,11 @@ import { renderToString } from "react-dom/server";
 import { router } from "./router";
 
 const COPYRIGHT_LINE = "Frames are copyrighted and belong to their owners";
+const FOOTER_AFTER_MAIN =
+  /<\/main><footer\b[^>]*>[\s\S]*Frames are copyrighted and belong to their owners[\s\S]*<\/footer>/;
 const SHARED_COLUMN =
   /<div class="[^"]*max-w-\[\d+px\][^"]*"><main\b[\s\S]*<\/main><footer\b[^>]*>[\s\S]*<\/footer><\/div>/;
+const FULL_BLEED = new Set(["/"]);
 
 async function render(path: string): Promise<string> {
   const page = createRouter({
@@ -27,10 +30,27 @@ async function render(path: string): Promise<string> {
 
 describe("every page", () => {
   for (const path of Object.keys(router.routesByPath)) {
-    test(`${path} shows the copyright footer in the page's own column`, async () => {
+    test(`${path} shows the copyright footer right after the page's content`, async () => {
       const html = await render(path);
       expect(html).toContain(COPYRIGHT_LINE);
-      expect(html).toMatch(SHARED_COLUMN);
+      expect(html).toMatch(FOOTER_AFTER_MAIN);
+      if (!FULL_BLEED.has(path)) expect(html).toMatch(SHARED_COLUMN);
     });
   }
+});
+
+describe("an unknown path", () => {
+  test("shows the copyright footer in the page's own column", async () => {
+    const html = await render("/no-such-page");
+    expect(html).toContain("This page is not in any film.");
+    expect(html).toMatch(SHARED_COLUMN);
+  });
+});
+
+test("the router knows the landing, search and about pages", () => {
+  expect(Object.keys(router.routesByPath).sort()).toEqual([
+    "/",
+    "/about",
+    "/search",
+  ]);
 });
