@@ -1,9 +1,9 @@
 import type { Film } from "@framesearch/schema";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search } from "lucide-react";
+import { ArrowRight, Search } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { Footer, LEGAL, Nav, TwoTone } from "./chrome";
+import { Footer, GitHubMark, LEGAL, Nav, REPO, TwoTone } from "./chrome";
 import { DotPicture } from "./dot-picture";
 import { useFilms } from "./lib/films";
 import { EASE, useInView, useReducedMotion } from "./lib/motion";
@@ -49,6 +49,20 @@ function Hero() {
           <motion.div className="mt-12 w-full" {...enter(0.25)}>
             <HeroSearch />
           </motion.div>
+          <div className="caption-2 mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-body">
+            <a
+              href={REPO}
+              className="inline-flex items-center gap-2 text-ink underline-offset-4 hover:underline"
+            >
+              <GitHubMark />
+              View the code on GitHub
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </a>
+            <span aria-hidden="true" className="max-sm:hidden">
+              ·
+            </span>
+            <span>MIT, self-host it on your own Cloudflare</span>
+          </div>
         </div>
       </div>
     </section>
