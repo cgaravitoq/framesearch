@@ -13,9 +13,10 @@ export class EmbedderContainer extends Container<Env> {
   override pingEndpoint = "health";
 
   private pending = 0;
+  private ready = false;
 
   override async fetch(request: Request): Promise<Response> {
-    if (this.pending > 0) return busyReply();
+    if (this.ready && this.pending > 0) return busyReply();
     this.pending += 1;
     const started = Date.now();
     try {
@@ -36,11 +37,18 @@ export class EmbedderContainer extends Container<Env> {
     const deadline = Date.now() + READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const response = await this.containerFetch(HEALTH_URL);
-      if (response.ok) return;
+      if (response.ok) {
+        this.ready = true;
+        return;
+      }
       await new Promise((settle) => setTimeout(settle, POLL_INTERVAL_MS));
     }
     throw new Error(
       `the embedder did not load its model within ${READY_TIMEOUT_MS} ms`,
     );
+  }
+
+  override onStop(): void {
+    this.ready = false;
   }
 }
