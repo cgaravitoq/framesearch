@@ -1,4 +1,5 @@
 export const DUPLICATE_THRESHOLD = 0.95;
+export const MAX_DEDUP_GAP_SECONDS = 20;
 
 export function cosine(left: Float32Array, right: Float32Array): number {
   let dot = 0;
@@ -22,20 +23,25 @@ interface DedupResult {
 
 export function dedupConsecutive(
   vectors: readonly Float32Array[],
+  times: readonly number[],
   threshold: number,
 ): DedupResult {
   const kept: number[] = [];
   const dropped: number[] = [];
   let previous: Float32Array | null = null;
+  let previousTime = Number.NEGATIVE_INFINITY;
   for (let at = 0; at < vectors.length; at += 1) {
     const vector = vectors[at];
+    const time = times[at] ?? 0;
     if (vector === undefined) continue;
-    if (previous !== null && cosine(previous, vector) > threshold) {
+    const near = time - previousTime < MAX_DEDUP_GAP_SECONDS;
+    if (previous !== null && near && cosine(previous, vector) > threshold) {
       dropped.push(at);
       continue;
     }
     kept.push(at);
     previous = vector;
+    previousTime = time;
   }
   return { kept, dropped };
 }
