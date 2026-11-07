@@ -71,6 +71,7 @@ export async function indexFilm(options: IndexOptions): Promise<IndexReport> {
     const frameVectors = await embed(images.map((image) => ({ image })));
     const { kept, dropped } = dedupConsecutive(
       frameVectors,
+      times,
       DUPLICATE_THRESHOLD,
     );
 
