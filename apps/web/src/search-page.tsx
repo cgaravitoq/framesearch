@@ -7,7 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Maximize2, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Toast, ToastStack } from "./bencho/toast-stack/ToastStack";
 import "./bencho/toast-stack/ToastStack.css";
@@ -653,25 +653,14 @@ function Detail({
             {timecode(shot.time)}
           </p>
         </div>
-        <div className="flex gap-2">
-          <a
-            href={shot.frameUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Open the full frame"
-            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
-          >
-            <Maximize2 className="size-4" aria-hidden="true" />
-          </a>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close shot"
-            className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close shot"
+          className="inline-flex size-9 items-center justify-center rounded-full bg-tint hover:bg-tint-2"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
       </div>
 
       <img
