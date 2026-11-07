@@ -16,12 +16,14 @@ import {
   parseVideoPath,
   unwrap,
 } from "./validate.ts";
+import { WATCH_HOURS, watchContainers } from "./watchdog.ts";
 
 const USAGE = `usage:
   framesearch index <video> --title "<title>"
   framesearch publish <film>
   framesearch unpublish <film>
   framesearch eval --base-url <url> <file> [thresholds]
+  framesearch watch-containers
 
 thresholds:
   --min-hit-at1 <ratio>    fail below this share of queries answered first
@@ -35,6 +37,10 @@ env:
   OPENROUTER_API_KEY       caption key, required by index
   FRAMESEARCH_R2_BUCKET    R2 bucket (default framesearch)
   FRAMESEARCH_D1_DATABASE  D1 database (default framesearch)
+
+watch-containers fails when a container instance of the account ran through
+each of the last ${WATCH_HOURS} complete hours; it needs CLOUDFLARE_ACCOUNT_ID and
+CLOUDFLARE_API_TOKEN.
 
 publish and unpublish need \`npx -y wrangler@4\` with a logged-in Cloudflare account.`;
 
@@ -167,6 +173,26 @@ async function main(): Promise<void> {
       console.error(failures.join("\n"));
       process.exitCode = 1;
     }
+    return;
+  }
+
+  if (command === "watch-containers") {
+    const { hours, alwaysOn } = await watchContainers(new Date());
+    const window = `${hours[0]} to ${hours.at(-1)} plus one hour`;
+    if (alwaysOn.length === 0) {
+      console.log(`no container instance ran through every hour of ${window}`);
+      return;
+    }
+    console.error(
+      [
+        `${alwaysOn.length} container instance(s) ran through every hour of ${window}:`,
+        ...alwaysOn.map(
+          (entry) =>
+            `  ${entry.name} (application ${entry.application}) instance ${entry.instance}`,
+        ),
+      ].join("\n"),
+    );
+    process.exitCode = 1;
     return;
   }
 
