@@ -24,6 +24,9 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      - name: Install
+        run: bun install --frozen-lockfile
+
       - name: Fail when a container never slept
         run: bun apps/cli/src/main.ts watch-containers
         env:
