@@ -1,9 +1,12 @@
 import { fuse, MAX_K, type SignalHits } from "@framesearch/core";
 import {
+  DISPLAY_WIDTH,
   frameKey,
   type Hit,
   type RankedShot,
   type SearchReply,
+  sizedFrameKey,
+  THUMB_WIDTH,
 } from "@framesearch/schema";
 import { type Embeddings, embedQuery } from "./embeddings.ts";
 import type { Env } from "./env.ts";
@@ -90,7 +93,7 @@ export async function runSearch(
     },
     { hits: keyword, signal: "bm25" },
   ];
-  const results = await fuseToHits(db, lists, input.k, reads);
+  const results = await fuseToHits(db, published, lists, input.k, reads);
   return { film: input.film, query: input.query, results };
 }
 
@@ -116,7 +119,13 @@ export async function runSimilar(
     })
     .filter((hit) => !sameShot.has(hit.shotId))
     .slice(0, MAX_K);
-  return await fuseToHits(db, [{ signal: "frame", hits: ranked }], k, reads);
+  return await fuseToHits(
+    db,
+    published,
+    [{ signal: "frame", hits: ranked }],
+    k,
+    reads,
+  );
 }
 
 async function sameShotIds(
@@ -158,6 +167,7 @@ async function keywordHits(
 
 async function fuseToHits(
   db: ReadDatabase,
+  published: Published,
   lists: SignalHits[],
   k: number,
   reads: ReadTimer,
@@ -167,6 +177,9 @@ async function fuseToHits(
     for (const hit of list.hits) ids.add(hit.shotId);
   }
   const shots = await shotRows(db, [...ids], reads);
+  const versions = new Map(
+    published.films.map((film) => [film.slug, film.version]),
+  );
   const group = (shotId: number): string => {
     const shot = shots.get(shotId);
     return shot === undefined
@@ -176,7 +189,9 @@ async function fuseToHits(
   const hits: Hit[] = [];
   for (const entry of fuse(lists, group, { limit: k })) {
     const shot = shots.get(entry.shotId);
-    if (shot !== undefined) hits.push(toHit(shot, entry.score));
+    if (shot !== undefined) {
+      hits.push(toHit(shot, entry.score, versions.get(shot.film) ?? 0));
+    }
   }
   return hits;
 }
@@ -203,11 +218,13 @@ async function shotRows(
   return shots;
 }
 
-function toHit(shot: ShotRow, score: number): Hit {
+function toHit(shot: ShotRow, score: number, version: number): Hit {
   return {
     caption: shot.caption,
     film: shot.film,
-    frameUrl: `/${frameKey(shot.film, shot.idx)}`,
+    frameUrl: `/${frameKey(shot.film, shot.idx)}?v=${version}`,
+    thumbUrl: `/${sizedFrameKey(shot.film, shot.idx, THUMB_WIDTH)}?v=${version}`,
+    displayUrl: `/${sizedFrameKey(shot.film, shot.idx, DISPLAY_WIDTH)}?v=${version}`,
     score,
     shotEnd: shot.shotEnd,
     shotId: shot.id,

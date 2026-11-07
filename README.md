@@ -48,7 +48,7 @@ Measured on a local run, not on the public site, where the first search after th
 - `/api/search` takes 28 ms end to end.
 - Embedding the query takes 11.1 ms at p50, and ranking takes 5.4 ms at p50.
 - Ranking 300,000 shots takes 178 ms.
-- Across 3 films, 58 of 59 eval queries put the right shot in the top five, with an MRR of 0.958.
+- On the public site, searching all 8 films at once, 30 of 36 eval queries put the right shot in the top five, with an MRR of 0.742; within each query's own film it is 34 of 36 and 0.836.
 
 ## Self-hosting
 

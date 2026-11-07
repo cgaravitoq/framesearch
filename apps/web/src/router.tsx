@@ -63,6 +63,8 @@ function isHit(value: unknown): value is Hit {
     typeof shot.title === "string" &&
     typeof shot.time === "number" &&
     typeof shot.frameUrl === "string" &&
+    typeof shot.thumbUrl === "string" &&
+    typeof shot.displayUrl === "string" &&
     Array.isArray(shot.tags)
   );
 }

@@ -13,7 +13,7 @@ import type {
   SearchReply,
   SimilarReply,
 } from "@framesearch/schema";
-import { frameKey } from "@framesearch/schema";
+import { frameKey, SIZED_WIDTHS, sizedFrameKey } from "@framesearch/schema";
 import { type Context, Hono } from "hono";
 import { cacheKey, readCache, writeCache } from "./cache.ts";
 import type { EmbedTrace } from "./embedder-routing.ts";
@@ -35,7 +35,7 @@ import {
 import { publishedFilms } from "./vectors.ts";
 
 const FRAME_SUFFIX = ".jpg";
-const FRAME_INDEX = /^(?:0|[1-9][0-9]{0,8})$/;
+const FRAME_STEM = /^(0|[1-9][0-9]{0,8})(?:-([0-9]+))?$/;
 const IMMUTABLE_FRAME_CACHE = "public, max-age=31536000, immutable";
 const SEARCH_CACHE_SECONDS = 60;
 const UNAVAILABLE = "Search is temporarily unavailable";
@@ -70,11 +70,20 @@ export function createApp(): Hono<{ Bindings: Env }> {
     if (!name.endsWith(FRAME_SUFFIX)) {
       return failure(`no frame for ${c.req.path}`, 404);
     }
-    const idx = name.slice(0, -FRAME_SUFFIX.length);
-    if (!FRAME_INDEX.test(idx)) {
+    const stem = FRAME_STEM.exec(name.slice(0, -FRAME_SUFFIX.length));
+    if (stem === null) {
       return failure("frame index must be a non-negative integer", 400);
     }
-    const object = await c.env.FRAMES.get(frameKey(film.value, Number(idx)));
+    const idx = Number(stem[1]);
+    const width = SIZED_WIDTHS.find((size) => String(size) === stem[2]);
+    if (stem[2] !== undefined && width === undefined) {
+      return failure(`frames come in ${SIZED_WIDTHS.join(" and ")} px`, 400);
+    }
+    const key =
+      width === undefined
+        ? frameKey(film.value, idx)
+        : sizedFrameKey(film.value, idx, width);
+    const object = await c.env.FRAMES.get(key);
     if (object === null) return failure("frame not found", 404);
     return new Response(object.body, {
       headers: {

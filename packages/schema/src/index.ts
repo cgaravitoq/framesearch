@@ -1,5 +1,13 @@
 export { DDL } from "./ddl.ts";
-export { frameKey, vectorsKey } from "./keys.ts";
+export {
+  DISPLAY_WIDTH,
+  frameKey,
+  SIZED_WIDTHS,
+  type SizedWidth,
+  sizedFrameKey,
+  THUMB_WIDTH,
+  vectorsKey,
+} from "./keys.ts";
 export type {
   ClickLogReply,
   ClickLogRequest,

@@ -100,6 +100,28 @@ describe("frames", () => {
     expect(frames.keys).toEqual(["frames/night-of-the-living-dead/0.jpg"]);
   });
 
+  test("asks R2 for the thumbnail key the schema builds", async () => {
+    const frames = fakeR2();
+    const response = await createApp().request(
+      "/frames/night-of-the-living-dead/7-480.jpg",
+      {},
+      fakeEnv({ FRAMES: frames.bucket }),
+    );
+    expect(response.status).toBe(404);
+    expect(frames.keys).toEqual(["frames/night-of-the-living-dead/7-480.jpg"]);
+  });
+
+  test("refuses a thumbnail of a width the schema does not build", async () => {
+    const frames = fakeR2();
+    const response = await createApp().request(
+      "/frames/night-of-the-living-dead/7-1920.jpg",
+      {},
+      fakeEnv({ FRAMES: frames.bucket }),
+    );
+    expect(response.status).toBe(400);
+    expect(frames.keys).toEqual([]);
+  });
+
   test("refuses a frame index with a leading zero", async () => {
     const frames = fakeR2();
     const response = await createApp().request(

@@ -1,6 +1,12 @@
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -114,7 +120,26 @@ function fakeCloud(
 }
 
 function frameKeys(shots: readonly StoredShot[]): string {
-  return shots.map((shot) => `frames/${SLUG}/${shot.idx}.jpg`).join(",");
+  return shots
+    .flatMap((shot) => [
+      `frames/${SLUG}/${shot.idx}.jpg`,
+      `frames/${SLUG}/${shot.idx}-960.jpg`,
+      `frames/${SLUG}/${shot.idx}-480.jpg`,
+    ])
+    .join(",");
+}
+
+function publish(
+  slug: string,
+  options: Parameters<typeof publishFilm>[1] = {},
+): ReturnType<typeof publishFilm> {
+  return publishFilm(slug, {
+    resize: async (source, frame, thumb) => {
+      copyFileSync(source, frame);
+      copyFileSync(source, thumb);
+    },
+    ...options,
+  });
 }
 
 const PUBLISHED_KEY = new RegExp(`^vectors/${SLUG}-[0-9a-f-]{36}\\.bin$`);
@@ -163,7 +188,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([]);
-    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const report = await publish(SLUG, { dataDir: dir, cloud });
     expect(report.vectorsKey).toMatch(PUBLISHED_KEY);
     expect(withStamps(calls)).toEqual([
       `put ${frameKeys(shots)}`,
@@ -179,7 +204,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, sql } = fakeCloud([]);
-    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const report = await publish(SLUG, { dataDir: dir, cloud });
     const writes = sql.filter((statements) =>
       statements.includes("INSERT INTO published"),
     );
@@ -201,7 +226,7 @@ describe("publish", () => {
       current: previous,
       prior: older,
     });
-    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const report = await publish(SLUG, { dataDir: dir, cloud });
     expect(calls).toContain(`delete ${older}`);
     expect(calls).not.toContain(`delete ${previous}`);
     expect(calls).not.toContain(`delete ${report.vectorsKey}`);
@@ -230,7 +255,7 @@ describe("publish", () => {
       current,
       old,
     ]);
-    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const report = await publish(SLUG, { dataDir: dir, cloud });
     expect(calls).toContain(`delete ${crashed}`);
     expect(calls).toContain(`delete ${old}`);
     expect(calls).not.toContain(`delete ${current}`);
@@ -250,7 +275,7 @@ describe("publish", () => {
       [vectorsKey(other)],
       [other],
     );
-    await publishFilm(SLUG, { dataDir: dir, cloud });
+    await publish(SLUG, { dataDir: dir, cloud });
     expect(calls).not.toContain(`delete ${vectorsKey(other)}`);
   });
 
@@ -260,7 +285,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls, sql } = fakeCloud([]);
-    const report = await publishFilm(SLUG, { dataDir: dir, cloud });
+    const report = await publish(SLUG, { dataDir: dir, cloud });
     expect(calls).not.toContain(`delete ${vectorsKey(SLUG)}`);
     const writes = sql.filter((statements) =>
       statements.includes("INSERT INTO published"),
@@ -276,8 +301,8 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, sql } = fakeCloud([]);
-    await publishFilm(SLUG, { dataDir: dir, cloud });
-    await publishFilm(SLUG, { dataDir: dir, cloud });
+    await publish(SLUG, { dataDir: dir, cloud });
+    await publish(SLUG, { dataDir: dir, cloud });
     const versions = sql.filter((statements) =>
       statements.includes("INSERT INTO published"),
     );
@@ -305,7 +330,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([], "rows");
-    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
       /D1 refused the batch/,
     );
     expect(calls).toEqual([`put ${frameKeys(shots)}`]);
@@ -317,7 +342,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4], "rows");
-    await expect(publishFilm(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir, cloud })).rejects.toThrow(
       /D1 refused the batch/,
     );
     expect(calls).toEqual([`put ${frameKeys(shots)}`]);
@@ -329,14 +354,18 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4]);
-    await publishFilm(SLUG, { dataDir: dir, cloud });
+    await publish(SLUG, { dataDir: dir, cloud });
     expect(withStamps(calls)).toEqual([
       `put ${frameKeys(shots)}`,
       "rows",
       `put vectors/${SLUG}-<stamp>.bin`,
       "version",
       `delete frames/${SLUG}/3.jpg`,
+      `delete frames/${SLUG}/3-480.jpg`,
+      `delete frames/${SLUG}/3-960.jpg`,
       `delete frames/${SLUG}/4.jpg`,
+      `delete frames/${SLUG}/4-480.jpg`,
+      `delete frames/${SLUG}/4-960.jpg`,
     ]);
   });
 
@@ -346,7 +375,7 @@ describe("publish", () => {
     writeVectors(dir, vectorsFor(shots));
     writeFrames(dir, shots);
     const { cloud, calls } = fakeCloud([0, 1, 2, 3, 4], "stale");
-    const failure = publishFilm(SLUG, { dataDir: dir, cloud });
+    const failure = publish(SLUG, { dataDir: dir, cloud });
     await expect(failure).rejects.toThrow(
       /is published as vectors\/night-of-the-living-dead-[0-9a-f-]{36}.bin, but 2 stale frames stay in R2: R2 refused the delete; publish it again/,
     );
@@ -356,7 +385,11 @@ describe("publish", () => {
       `put vectors/${SLUG}-<stamp>.bin`,
       "version",
       `delete frames/${SLUG}/3.jpg`,
+      `delete frames/${SLUG}/3-480.jpg`,
+      `delete frames/${SLUG}/3-960.jpg`,
       `delete frames/${SLUG}/4.jpg`,
+      `delete frames/${SLUG}/4-480.jpg`,
+      `delete frames/${SLUG}/4-960.jpg`,
     ]);
   });
 
@@ -365,7 +398,7 @@ describe("publish", () => {
     const shots = seed(dir);
     const vectors = vectorsFor(shots);
     writeVectors(dir, { ...vectors, frames: vectors.frames.slice(1) });
-    await expect(publishFilm(SLUG, { dataDir: dir })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir })).rejects.toThrow(
       /does not match the film rows: 1 frame rows have no vector/,
     );
   });
@@ -383,7 +416,7 @@ describe("publish", () => {
         { shotId: uncaptioned.id, values: values() },
       ],
     });
-    await expect(publishFilm(SLUG, { dataDir: dir })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir })).rejects.toThrow(
       /1 caption vectors point at no row/,
     );
   });
@@ -395,7 +428,7 @@ describe("publish", () => {
     const [first] = vectors.frames;
     if (first === undefined) throw new Error("fixture lost its frame vectors");
     writeVectors(dir, { ...vectors, frames: [...vectors.frames, first] });
-    await expect(publishFilm(SLUG, { dataDir: dir })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir })).rejects.toThrow(
       /frame shot .* appears twice/,
     );
   });
@@ -403,7 +436,7 @@ describe("publish", () => {
   test("stops before uploading when the store holds no vectors file", async () => {
     const dir = dataDir();
     seed(dir);
-    await expect(publishFilm(SLUG, { dataDir: dir })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir })).rejects.toThrow(
       /no vectors file/,
     );
   });
@@ -412,7 +445,7 @@ describe("publish", () => {
     const dir = dataDir();
     const shots = seed(dir);
     writeVectors(dir, vectorsFor(shots));
-    await expect(publishFilm(SLUG, { dataDir: dir })).rejects.toThrow(
+    await expect(publish(SLUG, { dataDir: dir })).rejects.toThrow(
       /3 frames are missing from the local store/,
     );
   });
@@ -449,8 +482,14 @@ describe("unpublish", () => {
       `delete ${current}`,
       `delete ${prior}`,
       `delete frames/${SLUG}/0.jpg`,
+      `delete frames/${SLUG}/0-480.jpg`,
+      `delete frames/${SLUG}/0-960.jpg`,
       `delete frames/${SLUG}/1.jpg`,
+      `delete frames/${SLUG}/1-480.jpg`,
+      `delete frames/${SLUG}/1-960.jpg`,
       `delete frames/${SLUG}/2.jpg`,
+      `delete frames/${SLUG}/2-480.jpg`,
+      `delete frames/${SLUG}/2-960.jpg`,
     ]);
     expect(report.vectorsKeys).toEqual([`vectors/${SLUG}.bin`, current, prior]);
     const statements = statementsOf(sql[0] ?? "");

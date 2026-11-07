@@ -1,9 +1,9 @@
 import type { Film } from "@framesearch/schema";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search } from "lucide-react";
+import { ArrowRight, Search } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { Footer, LEGAL, Nav, TwoTone } from "./chrome";
+import { Footer, GitHubMark, LEGAL, Nav, REPO, TwoTone } from "./chrome";
 import { DotPicture } from "./dot-picture";
 import { useFilms } from "./lib/films";
 import { EASE, useInView, useReducedMotion } from "./lib/motion";
@@ -49,6 +49,20 @@ function Hero() {
           <motion.div className="mt-12 w-full" {...enter(0.25)}>
             <HeroSearch />
           </motion.div>
+          <div className="caption-2 mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-body">
+            <a
+              href={REPO}
+              className="inline-flex items-center gap-2 text-ink underline-offset-4 hover:underline"
+            >
+              <GitHubMark />
+              View the code on GitHub
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </a>
+            <span aria-hidden="true" className="max-sm:hidden">
+              ·
+            </span>
+            <span>MIT, self-host it on your own Cloudflare</span>
+          </div>
         </div>
       </div>
     </section>
@@ -342,14 +356,14 @@ const FIGURES = [
     note: "Ranking grows in step with the index: 58.8 ms at 100,000.",
   },
   {
-    value: "58 of 59",
+    value: "30 of 36",
     label: "found in the top five",
-    note: "Queries across 3 films that land the right shot in the first five.",
+    note: "Queries searched across all 8 films at once that land the right shot in the first five.",
   },
   {
-    value: "0.958",
+    value: "0.742",
     label: "mean reciprocal rank",
-    note: "The right shot is almost always the first one you see.",
+    note: "On average the right shot is the first or second one you see.",
   },
 ];
 
