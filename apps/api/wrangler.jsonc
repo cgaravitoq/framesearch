@@ -5,6 +5,9 @@
   "compatibility_date": "2026-10-30",
   "workers_dev": true,
   "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
   "vars": {
     "SEARCH_LOG": true
   },
