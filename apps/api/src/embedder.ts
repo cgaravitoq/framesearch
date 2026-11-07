@@ -15,15 +15,19 @@ export class EmbedderContainer extends Container<Env> {
   private pending = 0;
   private ready = false;
 
+  // The base class counts a request in flight until its proxied body is fully
+  // read, and never sleeps while one is in flight; reading the body here keeps a
+  // caller that drops it (the prewarm) from holding the container awake forever.
   override async fetch(request: Request): Promise<Response> {
     if (this.ready && this.pending > 0) return busyReply();
     this.pending += 1;
     const started = Date.now();
     try {
       const reply = await super.fetch(request);
+      const body = await reply.arrayBuffer();
       const headers = new Headers(reply.headers);
       headers.set(CONTAINER_MS_HEADER, String(Date.now() - started));
-      return new Response(reply.body, {
+      return new Response(body, {
         headers,
         status: reply.status,
         statusText: reply.statusText,
