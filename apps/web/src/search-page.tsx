@@ -31,6 +31,7 @@ const DEBOUNCE_MS = 320;
 const MIN_QUERY_LENGTH = 3;
 const LOG_SETTLE_MS = 1200;
 const SIMILAR_K = 4;
+const SLOW_SEARCH_MS = 4000;
 export const SIZES = [12, 24, 48];
 const SLOTS = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -63,6 +64,17 @@ export interface SearchStart {
 }
 
 let toastId = 1;
+
+function useSlow(active: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (!active) return;
+    const timer = setTimeout(() => setSlow(true), SLOW_SEARCH_MS);
+    return () => clearTimeout(timer);
+  }, [active]);
+  return slow;
+}
 
 function srcSetOf(shot: Hit): string {
   return `${shot.thumbUrl} ${THUMB_WIDTH}w, ${shot.displayUrl} ${DISPLAY_WIDTH}w`;
@@ -483,6 +495,7 @@ function ResultsView({
   k: number;
   onK: (size: number) => void;
 }) {
+  const slow = useSlow(results.status === "loading");
   const show = (
     <div
       role="radiogroup"
@@ -513,9 +526,15 @@ function ResultsView({
     return (
       <div>
         <div className="flex items-start justify-between gap-4 pb-6">
-          <p className="title-4 min-w-0 text-body">
-            Searching for “{q.trim()}”
-          </p>
+          <div className="min-w-0">
+            <p className="title-4 text-body">Searching for “{q.trim()}”</p>
+            {slow && (
+              <p className="caption-2 mt-2 text-body">
+                Waking up the search model. The first search after a quiet spell
+                can take up to a minute.
+              </p>
+            )}
+          </div>
           {show}
         </div>
         <ul className={grid} aria-label="Loading results">
