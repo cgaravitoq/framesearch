@@ -1,9 +1,14 @@
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { DISPLAY_WIDTH, THUMB_WIDTH } from "@framesearch/schema";
 
 const SCENE_THRESHOLD = 0.3;
 const FRAME_CONCURRENCY = 6;
+const CUT_SEGMENTS = 4;
+const SCENE_WIDTH = 640;
+const VAAPI_DEVICE = "/dev/dri/renderD128";
+const VAAPI_INPUT = ["-hwaccel", "vaapi", "-hwaccel_device", VAAPI_DEVICE];
 const PTS_PATTERN = /pts_time:([0-9]+(?:\.[0-9]+)?)/g;
 const TIME_PRECISION = 1000;
 const MAX_SAMPLE_GAP = 10;
@@ -61,26 +66,82 @@ export async function probeDuration(video: string): Promise<number> {
   return duration;
 }
 
-export async function detectCuts(video: string): Promise<number[]> {
-  const { code, stderr } = await run([
-    "ffmpeg",
-    "-hide_banner",
-    "-nostdin",
-    "-loglevel",
-    "info",
-    "-i",
-    video,
-    "-an",
-    "-vf",
-    `select='gt(scene,${SCENE_THRESHOLD})',showinfo`,
-    "-f",
-    "null",
-    "-",
-  ]);
-  if (code !== 0) {
-    throw new Error(`ffmpeg scene detection failed (${code}): ${tail(stderr)}`);
+export async function detectCuts(
+  video: string,
+  duration: number,
+): Promise<number[]> {
+  const span = duration / CUT_SEGMENTS;
+  const vaapi = await vaapiDecodes(video);
+  const segments = await Promise.all(
+    Array.from({ length: CUT_SEGMENTS }, async (_, at) => {
+      const start = at * span;
+      const { code, stderr } = await run([
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "info",
+        ...(vaapi ? [...VAAPI_INPUT, "-hwaccel_output_format", "vaapi"] : []),
+        "-ss",
+        start.toFixed(3),
+        "-t",
+        span.toFixed(3),
+        "-i",
+        video,
+        "-an",
+        "-vf",
+        sceneFilter(vaapi),
+        "-f",
+        "null",
+        "-",
+      ]);
+      if (code !== 0) {
+        throw new Error(
+          `ffmpeg scene detection failed (${code}): ${tail(stderr)}`,
+        );
+      }
+      return parseCutTimes(stderr).map((time) => time + start);
+    }),
+  );
+  return segments.flat().sort((left, right) => left - right);
+}
+
+const vaapiByVideo = new Map<string, Promise<boolean>>();
+
+function vaapiDecodes(video: string): Promise<boolean> {
+  let probe = vaapiByVideo.get(video);
+  if (probe === undefined) {
+    probe = existsSync(VAAPI_DEVICE)
+      ? run([
+          "ffmpeg",
+          "-hide_banner",
+          "-nostdin",
+          "-loglevel",
+          "error",
+          ...VAAPI_INPUT,
+          "-hwaccel_output_format",
+          "vaapi",
+          "-i",
+          video,
+          "-frames:v",
+          "1",
+          "-vf",
+          `scale_vaapi=w=${SCENE_WIDTH}:h=-2,hwdownload,format=nv12`,
+          "-f",
+          "null",
+          "-",
+        ]).then(({ code }) => code === 0)
+      : Promise.resolve(false);
+    vaapiByVideo.set(video, probe);
   }
-  return parseCutTimes(stderr);
+  return probe;
+}
+
+function sceneFilter(vaapi: boolean): string {
+  const select = `select='gt(scene,${SCENE_THRESHOLD})',showinfo`;
+  return vaapi
+    ? `scale_vaapi=w=${SCENE_WIDTH}:h=-2,hwdownload,format=nv12,${select}`
+    : select;
 }
 
 function parseCutTimes(log: string): number[] {
@@ -138,6 +199,7 @@ export async function extractFrames(
   outDir: string,
 ): Promise<string[]> {
   await mkdir(outDir, { recursive: true });
+  const vaapi = await vaapiDecodes(video);
   const paths = times.map((_, idx) =>
     join(outDir, `${String(idx).padStart(5, "0")}.jpg`),
   );
@@ -155,6 +217,7 @@ export async function extractFrames(
         "-nostdin",
         "-loglevel",
         "error",
+        ...(vaapi ? VAAPI_INPUT : []),
         "-ss",
         time.toFixed(3),
         "-i",

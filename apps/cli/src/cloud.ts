@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { S3Client } from "bun";
 import {
   publishedFilmsSql,
   publishedFramesSql,
@@ -17,6 +18,10 @@ export const UPLOAD_CONCURRENCY = 8;
 const BULK_CHUNK = 200;
 const RATE_ATTEMPTS = 8;
 const RATE_WAIT_MS = 60_000;
+const RETRYABLE_STATUS = /\b(429|500|502|503|504): /;
+const S3_CONCURRENCY = 32;
+const S3_ATTEMPTS = 5;
+const S3_BACKOFF_MS = 2000;
 
 interface StoredObject {
   key: string;
@@ -51,9 +56,45 @@ export function databaseName(): string {
   return process.env.FRAMESEARCH_D1_DATABASE ?? "framesearch";
 }
 
+function s3Client(): S3Client | null {
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (!accessKeyId || !secretAccessKey || !account) return null;
+  return new S3Client({
+    accessKeyId,
+    secretAccessKey,
+    bucket: bucketName(),
+    endpoint: `https://${account}.r2.cloudflarestorage.com`,
+  });
+}
+
+async function retried(work: () => Promise<unknown>): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await work();
+      return;
+    } catch (error) {
+      if (attempt >= S3_ATTEMPTS) throw error;
+      await Bun.sleep(S3_BACKOFF_MS * attempt);
+    }
+  }
+}
+
 export async function putObjects(
   objects: readonly StoredObject[],
 ): Promise<void> {
+  const s3 = s3Client();
+  if (s3 !== null) {
+    await mapBounded(objects, S3_CONCURRENCY, (object) =>
+      retried(() =>
+        s3.write(object.key, Bun.file(object.file), {
+          type: object.contentType,
+        }),
+      ),
+    );
+    return;
+  }
   const byType = new Map<string, StoredObject[]>();
   for (const object of objects) {
     const sameType = byType.get(object.contentType);
@@ -79,7 +120,8 @@ async function bulkPutPaced(
       await bulkPut(objects, contentType);
       return;
     } catch (error) {
-      const limited = error instanceof Error && error.message.includes("429");
+      const limited =
+        error instanceof Error && RETRYABLE_STATUS.test(error.message);
       if (!limited || attempt >= RATE_ATTEMPTS) throw error;
       await Bun.sleep(RATE_WAIT_MS);
     }
@@ -120,6 +162,11 @@ async function bulkPut(
 }
 
 export async function deleteObject(key: string): Promise<void> {
+  const s3 = s3Client();
+  if (s3 !== null) {
+    await retried(() => s3.delete(key));
+    return;
+  }
   await wrangler([
     "r2",
     "object",

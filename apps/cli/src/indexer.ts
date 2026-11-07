@@ -56,7 +56,7 @@ export async function indexFilm(options: IndexOptions): Promise<IndexReport> {
   await mkdir(dir, { recursive: true });
 
   const duration = await probeDuration(video);
-  const cuts = await detectCuts(video);
+  const cuts = await detectCuts(video, duration);
   const shots = shotBounds(cuts, duration);
   const times = sampleTimes(shots);
   if (times.length === 0) throw new Error(`no frames found in ${video}`);
